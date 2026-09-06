@@ -3,6 +3,7 @@ import type { ActorCapabilities } from "./actor-contract.js";
 import type { CuaAction, CuaProvider, CuaSafetyCheck, CuaTurn, CuaTurnRequest } from "./computer-use.js";
 import { redactText } from "./redaction.js";
 import type { ReasoningEffort } from "./reasoning-effort.js";
+import { isMaxOutputTokens } from "./output-token-limit.js";
 import {
   prepareContainedOutputFile,
   prepareSelectedOutputDirectory,
@@ -315,6 +316,7 @@ export interface OpenAiCuContext {
   model: string;
   instructions: string;
   reasoningEffort: ReasoningEffort;
+  maxOutputTokens?: number;
   /** When set, request provider-sanctioned reasoning summaries (#427). Absent = do not ask. */
   reasoningSummary?: OpenAiReasoningSummary;
   safetyIdentifier?: string;
@@ -325,6 +327,7 @@ export interface OpenAiCuContext {
 function sharedRequestFields(ctx: OpenAiCuContext): Record<string, unknown> {
   return {
     model: ctx.model,
+    ...(ctx.maxOutputTokens === undefined ? {} : { max_output_tokens: ctx.maxOutputTokens }),
     // Keep the task/persona contract present on every turn. Some computer-use
     // continuations carry only screenshot call outputs; without repeating the
     // instructions, a provider that does not fully retain prior state can drift
@@ -517,6 +520,8 @@ export interface OpenAiResponsesProviderOptions {
    * downgrade to something the trace would then misreport. See src/reasoning-effort.ts.
    */
   reasoningEffort?: ReasoningEffort;
+  /** Optional positive integer output limit per response, including reasoning. Not a spend cap. */
+  maxOutputTokens?: number;
   /**
    * Reasoning-summary capture (#427). Defaults to "auto" (the provider picks the best
    * summarizer the model supports); "off" never asks. If the account/model rejects the
@@ -613,6 +618,10 @@ function isAbortError(error: unknown): boolean {
  * is ever returned or logged.
  */
 export function createOpenAiResponsesProvider(options: OpenAiResponsesProviderOptions): CuaProvider {
+  if (options.maxOutputTokens !== undefined && !isMaxOutputTokens(options.maxOutputTokens)) {
+    throw new Error("maxOutputTokens must be a positive safe integer.");
+  }
+  const maxOutputTokens = options.maxOutputTokens;
   const model = options.model ?? DEFAULT_OPENAI_CU_MODEL;
   const endpoint = options.endpoint ?? DEFAULT_ENDPOINT;
   const reasoningEffort = options.reasoningEffort ?? DEFAULT_OPENAI_CU_REASONING_EFFORT;
@@ -662,6 +671,7 @@ export function createOpenAiResponsesProvider(options: OpenAiResponsesProviderOp
     model,
     instructions,
     reasoningEffort,
+    ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
     ...(reasoningSummary === undefined ? {} : { reasoningSummary }),
     ...(options.safetyIdentifier === undefined ? {} : { safetyIdentifier: options.safetyIdentifier })
   });
@@ -757,7 +767,7 @@ export function createOpenAiResponsesProvider(options: OpenAiResponsesProviderOp
     const attempt = async (build: (ctx: OpenAiCuContext) => Record<string, unknown>): Promise<unknown> => {
       // A closing report makes exactly one request: no HTTP or policy-latch retries.
       if (closing) {
-        return post({ ...build(buildContext(req.instructions)), tool_choice: "none", max_output_tokens: 1024,
+        return post({ ...build(buildContext(req.instructions)), tool_choice: "none", max_output_tokens: Math.min(maxOutputTokens ?? 1024, 1024),
           text: { format: { type: "json_schema", name: "participant_closing_report", strict: true,
             schema: { type: "object", additionalProperties: false, required: ["summary", "frictionReports"],
               properties: { summary: { type: "string" }, frictionReports: { type: "array", items: { type: "string" } } } }
@@ -821,7 +831,7 @@ export function createOpenAiResponsesProvider(options: OpenAiResponsesProviderOp
     version: model,
     // The effort the wire actually carries, not the one the lab asked for — the provider defaults
     // an absent request to "medium", and the trace has to say what produced it (#497).
-    modelSettings: { reasoningEffort },
+    modelSettings: { reasoningEffort, ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }) },
     capabilities: OPENAI_RESPONSES_CU_CAPABILITIES,
     // This is a VISION provider: nextTurn sends the screenshot as the computer_call_output, so
     // it cannot reason over a screenshot-less observation. The loop reads this to fail closed

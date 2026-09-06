@@ -76,6 +76,7 @@ import {
 } from "./device-presets.js";
 import {
   cuaLaneValidationReason,
+  outputTokenLimitValidationReason,
   isHttpUrl,
   isLoopbackUrl,
   MAX_CUA_LANES,
@@ -445,6 +446,7 @@ export interface CuaLanePlanEntry {
   /** The declared reasoning effort for this lane, when the lab declared one. The plan line is what
    *  you read BEFORE spending money, so a declared per-lane difference has to be visible there. */
   reasoningEffort?: string;
+  maxOutputTokens?: number;
   /** Present only when a lane overrides subject.appUrl; digest avoids leaking preview hosts in plan logs. */
   targetDigest?: string;
 }
@@ -659,6 +661,7 @@ export interface CuaLaneSpec {
    * resolved value rather than as nothing (#497).
    */
   reasoningEffort?: ReasoningEffort;
+  maxOutputTokens?: number;
   /** The lab's declared protocol (#414). Every lane runs the SAME protocol — that is what makes the
    *  per-task rates comparable across participants. Goals are already composed into `instructions`;
    *  this carries the full tasks so the loop can corroborate completion, and the criteria never
@@ -943,6 +946,7 @@ function laneSpecsAndPlan(
       ...((lane?.reasoningEffort ?? actor?.reasoningEffort) === undefined
         ? {}
         : { reasoningEffort: (lane?.reasoningEffort ?? actor?.reasoningEffort) as ReasoningEffort }),
+      ...(actor?.maxOutputTokens === undefined ? {} : { maxOutputTokens: actor.maxOutputTokens }),
       ...(tasks === undefined ? {} : { tasks }),
       deviceName: device.name,
       devicePreset: device.preset,
@@ -976,6 +980,7 @@ function laneSpecsAndPlan(
       resolution: spec.resolution,
       instructionDigest: spec.persona.promptDigest,
       ...(spec.reasoningEffort === undefined ? {} : { reasoningEffort: spec.reasoningEffort }),
+      ...(spec.maxOutputTokens === undefined ? {} : { maxOutputTokens: spec.maxOutputTokens }),
       ...(spec.targetUrl === undefined ? {} : { targetDigest: digestUrl(spec.targetUrl) })
     }))
   };
@@ -3022,7 +3027,8 @@ export async function runCuaLane(spec: CuaLaneSpec, deps: CuaLaneDeps): Promise<
           apiKey: deps.openaiApiKey,
           ...(config.actors[0]?.model ? { model: config.actors[0]!.model } : {}),
           // Per-LANE, not per-actor: two lanes at different efforts is the control this exists for.
-          ...(spec.reasoningEffort === undefined ? {} : { reasoningEffort: spec.reasoningEffort })
+          ...(spec.reasoningEffort === undefined ? {} : { reasoningEffort: spec.reasoningEffort }),
+          ...(spec.maxOutputTokens === undefined ? {} : { maxOutputTokens: spec.maxOutputTokens })
         },
         ...(maxUsd === undefined
           ? {}
@@ -3706,6 +3712,11 @@ async function runCuaActorLabInScope(options: RunCuaActorLabOptions): Promise<Cu
     return fail("HUMANISH_CUA_LAB_ACTOR_UNSUPPORTED", `actors[0].type "${actorType}" is not a registered computer-use actor.`);
   }
   const runSession = hooks.runSession ?? descriptor.runSession;
+  const outputLimitReason = outputTokenLimitValidationReason(config);
+  if (outputLimitReason) return fail("HUMANISH_CUA_LAB_SUBJECT_INVALID", outputLimitReason, descriptor.id);
+  if (actor?.maxOutputTokens !== undefined && (hooks.runSession || hooks.buildProvider || hooks.buildExecutor)) {
+    return fail("HUMANISH_CUA_LAB_SUBJECT_INVALID", "maxOutputTokens cannot be enforced by a custom runSession/provider/executor route.", descriptor.id);
+  }
   const inProcessRoute = hooks.buildExecutor !== undefined;
   const localAppSubject = config.subject.source === "local-app";
   // Adopter-hosted comms plane on the app-url route (#380): humanish provisions no subject here,

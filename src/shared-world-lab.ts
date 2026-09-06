@@ -75,6 +75,7 @@ import type { DevicePreset } from "./device-presets.js";
 import {
   resolveSeatUrl,
   sharedWorldValidationReason,
+  outputTokenLimitValidationReason,
   type LabActorLane,
   type LabConfig,
   type LabDesktopBrowser,
@@ -616,9 +617,12 @@ async function runSharedWorldLabInScope(options: RunSharedWorldLabOptions): Prom
   }
 
   // Re-enforce the shared-world cross-validation (library API surface).
-  const invalidReason = sharedWorldValidationReason(config);
+  const invalidReason = outputTokenLimitValidationReason(config) ?? sharedWorldValidationReason(config);
   if (invalidReason) {
     return fail("HUMANISH_SHARED_WORLD_LAB_INVALID", invalidReason, descriptor.id);
+  }
+  if (config.actors[0]?.maxOutputTokens !== undefined && hooks.runSession) {
+    return fail("HUMANISH_SHARED_WORLD_LAB_INVALID", "maxOutputTokens cannot be enforced by a custom runSession.", descriptor.id);
   }
 
   const serve = config.subject.serve!;
@@ -922,7 +926,8 @@ async function runSharedWorldLabInScope(options: RunSharedWorldLabOptions): Prom
             openai: {
               apiKey: openaiApiKey,
               ...(config.actors[0]?.model ? { model: config.actors[0]!.model } : {}),
-              ...(spec.reasoningEffort === undefined ? {} : { reasoningEffort: spec.reasoningEffort })
+              ...(spec.reasoningEffort === undefined ? {} : { reasoningEffort: spec.reasoningEffort }),
+              ...(config.actors[0]?.maxOutputTokens === undefined ? {} : { maxOutputTokens: config.actors[0].maxOutputTokens })
             },
             desktop: desktop as unknown as E2BDesktopLike,
             ...(launchedBrowserFamily === "chromium"

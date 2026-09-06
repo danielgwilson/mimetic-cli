@@ -68,6 +68,23 @@ routes do not yet emit these per-desktop compute estimates.
 
 ## Choose a model
 
+The `maxOutputTokens` control below is available in repository source and is not
+included in npm `0.82.1`.
+
+For first-party OpenAI computer-use studies, optional `actors[0].maxOutputTokens`
+sets a positive integer limit on each response's output, including reasoning
+tokens. It applies to every participant, continuation and retry. A closing
+report uses the smaller of this value and its existing 1024-token limit. The
+effective setting is recorded in the actor's `modelSettings`; omitting it keeps
+the provider's normal output behavior.
+
+A small value can end a session before it produces visible text. An explicit
+provider token-limit response is recorded as `budget_reached` / `incomplete`;
+its partial output does not establish task completion. This setting does not
+bound input/context tokens, total requests, cumulative spend or desktop time.
+Terminal, local-agent, scripted, custom-provider/session routes and per-lane
+overrides are rejected when they declare this unsupported control.
+
 The default computer-use model is `gpt-5.6-sol`. Set `actors[0].model` in the lab
 to pin another supported model. The checked-in rate table also prices models
 such as `gpt-5.6-terra`, `gpt-5.6-luna`, and `gpt-5.5`; consult the table in your

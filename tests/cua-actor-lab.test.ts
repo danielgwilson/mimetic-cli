@@ -6,7 +6,7 @@ import { link, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PNG } from "pngjs";
 
 import type { ActorCapabilities, ActorTrace } from "../src/actor-contract.js";
@@ -380,6 +380,53 @@ describe("lab routing (app-url → cua)", () => {
 });
 
 describe("runCuaActorLab", () => {
+  it("forwards the public output limit into the real provider and retained incomplete trace", async () => {
+    const config = cuaConfig();
+    config.actors[0]!.maxOutputTokens = 16;
+    const sandbox = makeFakeSandbox();
+    const { module, created, killed } = makeFakeModule(sandbox);
+    const wire = JSON.parse(await readFile(new URL("./fixtures/openai-incomplete/reasoning-only.json", import.meta.url), "utf8"));
+    let requests = 0;
+    vi.stubGlobal("fetch", async (_url: unknown, init: { body: string }) => {
+      expect(JSON.parse(init.body).max_output_tokens).toBe(16);
+      requests += 1;
+      return { ok: true, status: 200, text: async () => JSON.stringify(wire), json: async () => wire };
+    });
+    const result = await runCuaActorLab({ cwd, config, dryRun: false, hooks: {
+      env: { OPENAI_API_KEY: "synthetic", E2B_API_KEY: "synthetic" }, loadDesktopModule: async () => module
+    } }).finally(() => vi.unstubAllGlobals());
+    expect(created).toHaveLength(1);
+    expect(killed).toHaveLength(1);
+    expect(requests).toBe(1);
+    expect(result.session?.status).toBe("incomplete");
+    const bundle = JSON.parse(await readFile(path.join(cwd, ".humanish", "runs", result.runId, "run.json"), "utf8"));
+    expect(bundle.streams[0].actor.modelSettings.maxOutputTokens).toBe(16);
+    expect(sandbox.calls.some(([name]) => name === "leftClick")).toBe(false);
+  });
+
+  it("refuses an invalid typed-library output limit before sandbox allocation", async () => {
+    const config = cuaConfig();
+    config.actors[0]!.maxOutputTokens = 0;
+    let allocations = 0;
+    const result = await runCuaActorLab({ cwd, config, dryRun: false, hooks: {
+      loadDesktopModule: async () => { allocations += 1; throw new Error("must not allocate"); }
+    } });
+    expect(result.ok).toBe(false);
+    expect(result.error?.message).toContain("maxOutputTokens");
+    expect(allocations).toBe(0);
+  });
+
+  it("rejects custom session hooks that could bypass a declared output limit", async () => {
+    const config = cuaConfig();
+    config.actors[0]!.maxOutputTokens = 16;
+    let called = 0;
+    const result = await runCuaActorLab({ cwd, config, dryRun: false, hooks: {
+      runSession: async () => { called += 1; throw new Error("must not dispatch"); },
+      loadDesktopModule: async () => { called += 1; throw new Error("must not allocate"); }
+    } });
+    expect(result.error?.message).toContain("custom runSession");
+    expect(called).toBe(0);
+  });
   let cwd: string;
 
   beforeEach(async () => {

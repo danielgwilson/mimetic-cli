@@ -312,6 +312,14 @@ beforeEach(async () => { cwd = await mkdtemp(path.join(tmpdir(), "humanish-concu
 afterEach(async () => { await rm(cwd, { recursive: true, force: true }); });
 
 describe("runConcurrentSharedWorld (the heart: real orchestration + rendezvous latch, $0)", () => {
+  it("refuses a custom session before allocating the concurrent shared plane with an output limit", async () => {
+    const config = concurrentConfig();
+    config.actors[0]!.maxOutputTokens = 16;
+    const { hooks, created } = baseHooks({ worldVersion: 0 }, makeRendezvous(3));
+    const result = await runConcurrentSharedWorld({ cwd, config, dryRun: false, hooks });
+    expect(result.error?.message).toContain("custom runSession");
+    expect(created).toHaveLength(0);
+  });
   it("dry-run produces a verified contract bundle (concurrent shape + attributionClass + limits), no sandboxes", async () => {
     const result = await runConcurrentSharedWorld({ cwd, config: concurrentConfig(), dryRun: true });
     expect(result.ok).toBe(true);

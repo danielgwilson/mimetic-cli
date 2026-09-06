@@ -1,8 +1,9 @@
+import { PNG } from "pngjs";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ACTOR_TRACE_SCHEMA, type ActorCompletionReason, type ActorStatus, type ActorTrace } from "../src/actor-contract.js";
 import type { CuaActorSessionOptions } from "../src/computer-use-actor.js";
@@ -312,6 +313,41 @@ afterEach(async () => {
 });
 
 describe("runSharedWorldLab (the heart: real orchestration vs fakes, $0)", () => {
+  it("forwards the actor output limit to both sequential role constructors", async () => {
+    const config = sharedWorldConfig();
+    config.actors[0]!.maxOutputTokens = 16;
+    const { hooks, killed, sandbox } = baseHooks({ worldVersion: 0 });
+    delete hooks.runSession;
+    sandbox.screenshot = async () => PNG.sync.write(new PNG({ ...FAKE_SCREEN_GEOMETRY }));
+    const wire = JSON.parse(await readFile(new URL("./fixtures/openai-incomplete/reasoning-only.json", import.meta.url), "utf8"));
+    const seen: Array<number | undefined> = [];
+    vi.stubGlobal("fetch", async (_url: unknown, init: { body: string }) => {
+      seen.push(JSON.parse(init.body).max_output_tokens);
+      return { ok: true, status: 200, text: async () => JSON.stringify(wire), json: async () => wire };
+    });
+    await runSharedWorldLab({ cwd, config, dryRun: false, hooks }).finally(() => vi.unstubAllGlobals());
+    expect(seen).toEqual([16, 16]);
+    expect(killed).toHaveLength(1);
+  });
+
+  it("refuses an invalid typed-library limit before the shared desktop is allocated", async () => {
+    const config = sharedWorldConfig();
+    config.actors[0]!.maxOutputTokens = 0;
+    const { hooks, created } = baseHooks({ worldVersion: 0 });
+    const result = await runSharedWorldLab({ cwd, config, dryRun: false, hooks });
+    expect(result.ok).toBe(false);
+    expect(result.error?.message).toContain("maxOutputTokens");
+    expect(created).toHaveLength(0);
+  });
+
+  it("refuses a custom session before allocating a desktop when an output limit is declared", async () => {
+    const config = sharedWorldConfig();
+    config.actors[0]!.maxOutputTokens = 16;
+    const { hooks, created } = baseHooks({ worldVersion: 0 });
+    const result = await runSharedWorldLab({ cwd, config, dryRun: false, hooks });
+    expect(result.error?.message).toContain("custom runSession");
+    expect(created).toHaveLength(0);
+  });
   it("dry-run produces a verified contract bundle with the sharedWorld block + attributionClass + limits, no sandbox", async () => {
     const result = await runSharedWorldLab({ cwd, config: sharedWorldConfig(), dryRun: true });
     expect(result.ok).toBe(true);

@@ -81,6 +81,7 @@ import {
 import type { DetachedTimers } from "./e2b-detached.js";
 import {
   concurrentSharedWorldValidationReason,
+  outputTokenLimitValidationReason,
   externalPublicSharedWorldValidationReason,
   type LabActorLane,
   type LabConfig
@@ -751,11 +752,14 @@ async function runConcurrentSharedWorldInScope(options: RunConcurrentSharedWorld
   // Re-enforce the cross-validation (library API surface). The external-public branch NEVER touches
   // the getHost synthetic gate — that gate exists because getHost is internet-reachable AND
   // harness-owned; a public site the harness neither provisioned nor exposed has neither property.
-  const invalidReason = planeClass === "external-public"
+  const invalidReason = outputTokenLimitValidationReason(config) ?? (planeClass === "external-public"
     ? externalPublicSharedWorldValidationReason(config)
-    : concurrentSharedWorldValidationReason(config);
+    : concurrentSharedWorldValidationReason(config));
   if (invalidReason) {
     return fail("HUMANISH_CONCURRENT_SHARED_WORLD_LAB_INVALID", invalidReason, descriptor.id);
+  }
+  if (config.actors[0]?.maxOutputTokens !== undefined && hooks.runSession) {
+    return fail("HUMANISH_CONCURRENT_SHARED_WORLD_LAB_INVALID", "maxOutputTokens cannot be enforced by a custom runSession.", descriptor.id);
   }
 
   // provisioned-getHost fields (all absent on the external-public plane — forbidden at validation).

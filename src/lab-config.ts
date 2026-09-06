@@ -55,6 +55,7 @@ import { DEVICE_PRESET_NAMES, isDevicePresetName } from "./device-presets.js";
 import type { DwellWindow, StopConditionPrimitive, StopWhen, StopWhenRule } from "./stop-conditions.js";
 import { isReasoningEffort, reasoningEffortNames, type ReasoningEffort } from "./reasoning-effort.js";
 import { isExactRuntimeVersion } from "./terminal-runtime.js";
+import { isMaxOutputTokens } from "./output-token-limit.js";
 
 export const LAB_CONFIG_SCHEMA = "humanish.lab.v2";
 
@@ -453,6 +454,8 @@ export interface LabActor {
   tasks?: LabTask[];
   /** Provider model override. Consumed on the app-url route. */
   model?: string;
+  /** First-party OpenAI CUA only: per-response output limit including reasoning, not a dollar cap. */
+  maxOutputTokens?: number;
   /**
    * `local-agent` ONLY: which locally signed-in coding agent is the brain. Absent = codex.
    *
@@ -929,6 +932,9 @@ export function parseLabConfig(raw: unknown): LabConfigParseResult {
   const commsResult = parseComms(raw.comms);
   if (!commsResult.ok) return commsResult;
   if (commsResult.value) config.comms = commsResult.value;
+
+  const outputLimitReason = outputTokenLimitValidationReason(config);
+  if (outputLimitReason) return invalid(outputLimitReason);
 
   // All-parallel default (#350): a multi-seat computer-use lab that does not declare
   // execution.concurrency runs EVERY seat at once — the declared field is a cap the author chose,
@@ -1459,6 +1465,17 @@ export function routesToComputerUse(config: LabConfig): boolean {
   return (config.subject.source === "clone" || config.subject.source === "local-tree")
     && config.execution?.target === "e2b-desktop"
     && actorResolvesToComputerUse(config.actors[0]?.type);
+}
+
+/** Refuse a claimed output bound when the route cannot pass it to the first-party provider. */
+export function outputTokenLimitValidationReason(config: LabConfig): string | null {
+  const actor = config.actors[0];
+  if (actor?.maxOutputTokens === undefined) return null;
+  if (!isMaxOutputTokens(actor.maxOutputTokens)) return "actors[0].maxOutputTokens must be a positive safe integer.";
+  if (actor.type !== "openai-computer-use" || !routesToComputerUse(config) || config.subject.source === "local-app") {
+    return "actors[0].maxOutputTokens is supported only by first-party OpenAI computer-use routes; terminal, local-agent, scripted and custom in-process routes cannot enforce it.";
+  }
+  return null;
 }
 
 /**
@@ -2463,6 +2480,10 @@ function parseActors(raw: unknown): { ok: true; value: LabActor[] } | LabConfigP
     if (mission) actor.mission = mission;
     const model = str(entry.model);
     if (model) actor.model = model;
+    if (entry.maxOutputTokens !== undefined) {
+      if (!isMaxOutputTokens(entry.maxOutputTokens)) return invalid(`actors[${index}].maxOutputTokens must be a positive safe integer.`);
+      actor.maxOutputTokens = entry.maxOutputTokens;
+    }
     const localAgent = str(entry.localAgent);
     if (entry.localAgent !== undefined) {
       if (localAgent !== "codex" && localAgent !== "claude") {

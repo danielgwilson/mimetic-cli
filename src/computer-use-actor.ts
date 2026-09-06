@@ -100,6 +100,9 @@ export interface CuaActorSessionOptions {
 }
 
 export async function runCuaActorSession(options: CuaActorSessionOptions): Promise<CuaLoopResult> {
+  if (options.provider && options.openai?.maxOutputTokens !== undefined) {
+    throw new Error("openai.maxOutputTokens cannot be enforced by an injected provider.");
+  }
   const provider = options.provider ?? buildProvider(options.openai);
   const executor = options.executor ?? buildExecutor(options.desktop, options.executorOptions);
 

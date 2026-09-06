@@ -170,7 +170,7 @@ export interface CuaProvider {
    * WHICH model; this says how it was asked to run. Optional: a provider with no such settings
    * records none, and absence stays absence rather than becoming a default nobody chose.
    */
-  readonly modelSettings?: { readonly reasoningEffort: ReasoningEffort };
+  readonly modelSettings?: { readonly reasoningEffort: ReasoningEffort; readonly maxOutputTokens?: number };
   readonly capabilities: ActorCapabilities;
   /**
    * True when nextTurn requires `observation.screenshot` to be present (a VISION model that
@@ -1646,7 +1646,8 @@ export async function runComputerUseLoop(options: CuaLoopOptions): Promise<CuaLo
     ids,
     ...(provider.modelSettings === undefined
       ? {}
-      : { modelSettings: { reasoningEffort: provider.modelSettings.reasoningEffort } }),
+      : { modelSettings: { reasoningEffort: provider.modelSettings.reasoningEffort,
+          ...(provider.modelSettings.maxOutputTokens === undefined ? {} : { maxOutputTokens: provider.modelSettings.maxOutputTokens }) } }),
     counts,
     items,
     ...(affordanceObservations.length > 0 ? { affordanceUse: summarizeAffordanceUse(affordanceObservations) } : {}),

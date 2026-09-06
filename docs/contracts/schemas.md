@@ -745,8 +745,8 @@ Core-owned fields:
   (#441): absent on older bundles and non-stamping producers, and absence means
   "timing/position unrecorded", never zero
 - optional `modelSettings` (`humanish.model-settings.v1`, #497): HOW the model was
-  asked to run, alongside `ids.model` which says which model it was. Today one
-  field, `reasoningEffort`. It records the value the request ACTUALLY carried,
+  asked to run, alongside `ids.model` which says which model it was.
+  `reasoningEffort` records the value the request ACTUALLY carried,
   including the provider default when a lab declared nothing — the resolved
   value is what produced the trace, so reporting it is honest where reporting
   "unset" would not be. Absent when a provider declares no settings and on every
@@ -755,6 +755,12 @@ Core-owned fields:
   is part of WHO the participant was rather than of how the instrument was tuned
   (docs/principles/actor-fidelity.md), so a trace without it is a result missing
   half its sample description
+- optional `modelSettings.maxOutputTokens`: the declared positive integer
+  `actors[0].maxOutputTokens`, passed to every first-party OpenAI CUA response
+  request, including reasoning output. Absent when undeclared, with no default
+  change. Closing reports use `min(maxOutputTokens, 1024)`. Unsupported routes,
+  custom provider/session hooks, and per-lane overrides fail before allocation.
+  This is an output-token limit, not an input-token, request-count or billing cap.
 - optional `affordanceUse` (`humanish.affordance-use.v1`): which KIND of route this
   actor took (see Affordance Use below)
 - optional `estimatedCost` (`humanish.actor-estimated-cost.v1`): a token-derived

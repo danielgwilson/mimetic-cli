@@ -214,7 +214,7 @@ export interface ActorTrace {
    * tuned (docs/principles/actor-fidelity.md), so a trace that does not carry it is a result with
    * half its sample description missing — and two such traces cannot honestly be compared.
    */
-  modelSettings?: { reasoningEffort: string };
+  modelSettings?: { reasoningEffort: string; maxOutputTokens?: number };
   counts: Record<string, number>;
   /**
    * ADDITIVE + OPTIONAL affordance record (humanish.affordance-use.v1, #369): which KIND of route
