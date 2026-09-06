@@ -987,6 +987,64 @@ describe("runComputerUseLoop", () => {
     expect(result.trace.items.some((item) => item.title === "computer-use backstop gave up")).toBe(false);
   });
 
+  it.each([40, 80])("does not instruct a waiting participant to stop before the lobby starts (backstop %i)", async (backstop) => {
+    const seen: CuaTurnRequest[] = [];
+    let played = false;
+    const provider: CuaProvider = {
+      id: "waiting-room",
+      capabilities: FAKE_CAPS,
+      async nextTurn(request) {
+        seen.push(request);
+        // A participant obeying the old recovery prompt would leave on the fourth turn.
+        if (/stop with (?:a final|a blocker) summary/.test(request.contextHint ?? "")) {
+          return { actions: [], pendingSafetyChecks: [], done: true, message: "Left the waiting room as instructed." };
+        }
+        if (request.observation.stateSignature === "game-started") {
+          if (played) return { actions: [], pendingSafetyChecks: [], done: true, message: "Joined the started game." };
+          played = true;
+          return { actions: [{ kind: "click", x: 20, y: 30 }], pendingSafetyChecks: [], done: false };
+        }
+        return { actions: [{ kind: "screenshot" }], pendingSafetyChecks: [], done: false };
+      }
+    };
+    const result = await runComputerUseLoop({
+      instructions: "Join the room and wait for the host to start the game, then play.",
+      provider,
+      executor: new SignatureExecutor([...Array<string>(9).fill("lobby-waiting"), "game-started"]),
+      persona,
+      redaction: defaultRedactionHooks,
+      timeoutMs: 10_000_000,
+      now: monotonicClock(),
+      idleSteps: backstop,
+      noProgressSteps: backstop
+    });
+
+    expect(result.reason).toBe("Joined the started game.");
+    expect(result.trace.counts.materialActions).toBe(1);
+    const hints = seen.flatMap((request) => request.contextHint === undefined ? [] : [request.contextHint]);
+    expect(hints.some((hint) => hint.includes("No visible progress"))).toBe(true);
+    expect(hints.some((hint) => hint.includes("only waiting or taking screenshots"))).toBe(true);
+    expect(hints.every((hint) => !/stop with (?:a final|a blocker) summary/.test(hint))).toBe(true);
+  });
+
+  it.each([40, 80])("still ends an unchanged lobby at its declared idle backstop %i", async (backstop) => {
+    const provider = new RepeatProvider({ actions: [{ kind: "screenshot" }], pendingSafetyChecks: [], done: false });
+    const result = await runComputerUseLoop({
+      instructions: "Wait for the host.",
+      provider,
+      executor: new SignatureExecutor(["lobby-waiting"]),
+      persona,
+      redaction: defaultRedactionHooks,
+      timeoutMs: 10_000_000,
+      now: monotonicClock(),
+      idleSteps: backstop,
+      noProgressSteps: backstop
+    });
+    expect(provider.seen).toHaveLength(backstop);
+    expect(result.completionReason).toBe("gave_up");
+    expect(result.trace.counts.idleTurns).toBe(backstop);
+  });
+
   it("gives up on a no-progress streak and nudges before stopping", async () => {
     const provider = new RepeatProvider({ actions: [{ kind: "click", x: 5, y: 5 }], pendingSafetyChecks: [], done: false });
     const executor = new SignatureExecutor(["same"]); // signature never changes
