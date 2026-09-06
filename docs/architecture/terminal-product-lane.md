@@ -182,6 +182,14 @@ unsupported architectures, a failed download or checksum, and a failed runtime
 check stop the lane before Codex. Downloads have finite connection, transfer, and
 retry bounds within the existing five-minute bootstrap deadline.
 
+The `desktop-cli` computer-use route uses this same Node/npm prerequisite when
+`subject.product.install` is omitted or declares a Node command. With install
+omitted, the participant arrives at an open terminal with Node/npm available;
+the product remains uninstalled for them to discover and install from its public
+surfaces. Runtime setup runs unkeyed and a failed bootstrap stops before the
+participant starts. A declared non-Node install keeps its existing runtime
+behavior. The desktop route retains its ten-minute runtime step deadline.
+
 ## The original command-scoped safety contract
 
 The default mode **inverts** the credential-placement default of every other E2B route.

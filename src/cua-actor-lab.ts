@@ -94,6 +94,7 @@ import { appendSandboxReceipt } from "./sandbox-receipts.js";
 import { assertScreenshotEvidence } from "./image-evidence.js";
 import { buildObserverData } from "./observer-data.js";
 import { corepackCommandFor, needsNodeRuntime, nodeBootstrapCommand } from "./subject-runtime.js";
+import { TERMINAL_NODE_BOOTSTRAP_COMMAND } from "./terminal-node-bootstrap.js";
 import { chromeCdpProbeCommand, parseChromeCdpProbeOutput, type ChromeMobileEmulationRequest } from "./chrome-cdp-probe.js";
 import { personaToDirectives, renderPersonaPromptSection, type ResolvedPersona } from "./persona.js";
 import { labPersonaIds, resolveCommittedPersonas } from "./persona-resolve.js";
@@ -2174,11 +2175,12 @@ function shellSingleQuote(value: string): string {
 }
 
 /**
- * Put a CLI on the desktop before the participant arrives (#495).
+ * Prepare a CLI study's runtime and, only when declared, its product (#495, #515).
  *
  * The install runs UNKEYED and before the session starts, for the same reason the clone route
  * provisions its subject first: what is being studied begins when the participant looks at the
- * screen, and making them fight an install first would be a study of the install.
+ * screen. Omitting install deliberately studies product installation; Node/npm remain a
+ * harness prerequisite so the participant can follow the product's public npm instructions.
  */
 async function provisionDesktopCli(
   desktop: E2BDesktopSandbox,
@@ -2191,14 +2193,13 @@ async function provisionDesktopCli(
   }
 ): Promise<void> {
   const install = args.install;
-  if (install === undefined) return;
   const now = (): number => Date.now();
-  if (needsNodeRuntime([install])) {
+  if (install === undefined || needsNodeRuntime([install])) {
     const startedAt = now();
-    emitPhaseStarted(args.onPhase, now, "runtime", "providing the Node runtime the install needs");
+    emitPhaseStarted(args.onPhase, now, "runtime", "providing Node/npm for the desktop CLI study");
     const bootstrap = await runDetachedStep(desktop, {
       name: "desktop-cli-runtime-node",
-      command: nodeBootstrapCommand(),
+      command: TERMINAL_NODE_BOOTSTRAP_COMMAND,
       cwd: "/home/user",
       timeoutMs: INSTALL_TIMEOUT_MS,
       requestTimeoutMs: args.requestTimeoutMs
@@ -2210,6 +2211,7 @@ async function provisionDesktopCli(
       throw new Error(`desktop-cli runtime bootstrap failed for "${args.product}"`);
     }
   }
+  if (install === undefined) return;
   const startedAt = now();
   emitPhaseStarted(args.onPhase, now, "install", `installing ${args.product} on the desktop`);
   const result = await runDetachedStep(desktop, {
@@ -2787,9 +2789,8 @@ export async function runCuaLane(spec: CuaLaneSpec, deps: CuaLaneDeps): Promise<
         };
       }
       if (desktopCliRoute) {
-        // Put the product on the desktop before the participant sees it. UNKEYED, like every other
-        // provisioning step: the participant's world is prepared by the harness, and what is being
-        // studied starts at the moment they look at the screen.
+        // Prepare the runtime and any declared product install, UNKEYED. With install omitted,
+        // the participant discovers and installs the product from its public surfaces.
         await provisionDesktopCli(desktop, {
           product: config.subject.product?.name ?? "",
           ...(config.subject.product?.install === undefined ? {} : { install: config.subject.product.install }),
