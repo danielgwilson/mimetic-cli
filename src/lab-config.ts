@@ -219,6 +219,8 @@ export interface LabSubjectProduct {
    * different study — one about the install, not about the tool. Present means the study starts
    * where you want it to start: asking a participant what studies a project contains, in an empty
    * directory, measures the lab rather than the product.
+   * Both routes prepare Node/npm when install is absent; product installation remains the
+   * participant's task. A missing template runtime must not become a product finding.
    */
   install?: string;
   /**
