@@ -55,6 +55,7 @@ import { verifyRun } from "../src/run.js";
 import { prepareSelectedOutputDirectory } from "../src/selected-output-paths.js";
 import type { LocalTreeArchive } from "../src/source-archive.js";
 import { freePort } from "./helpers/free-port.js";
+import { TERMINAL_NODE_BOOTSTRAP_COMMAND } from "../src/terminal-node-bootstrap.js";
 
 // ---------------------------------------------------------------------------
 // Fakes. The desktop module fake serves BOTH faces of the sandbox: the
@@ -376,6 +377,96 @@ describe("lab routing (app-url → cua)", () => {
     });
     if (!smoke.ok) throw new Error("fixture must parse");
     expect(selectLabBackend(smoke.config)).toBe("smoke");
+  });
+});
+
+describe("desktop-cli runtime prerequisites (#515)", () => {
+  let cwd: string;
+  beforeEach(async () => { cwd = await mkdtemp(path.join(tmpdir(), "humanish-desktop-cli-")); });
+  afterEach(async () => { await rm(cwd, { recursive: true, force: true }); });
+
+  function configFor(install?: string): LabConfig {
+    const parsed = parseLabConfig({
+      ...cuaConfig(),
+      subject: {
+        source: "desktop-cli",
+        product: { name: "sample-cli", publicSurfaces: ["https://example.com/sample-cli"], ...(install === undefined ? {} : { install }) }
+      }
+    });
+    if (!parsed.ok) throw new Error(parsed.error.message);
+    return parsed.config;
+  }
+
+  function scriptIndex(sandbox: FakeSandbox, step: string): number {
+    return sandbox.calls.findIndex(([name, file]) => name === "files.write" && String(file).endsWith(`${step}/run.sh`));
+  }
+
+  it.each([
+    { label: "participant-owned installation", install: undefined, runtime: true },
+    { label: "declared npm installation", install: "sudo -n npm install -g sample-cli", runtime: true },
+    { label: "declared Python installation", install: "pip install sample-cli", runtime: false }
+  ])("prepares $label before the participant and keeps product installation explicit", async ({ install, runtime }) => {
+    const config = configFor(install);
+    const sandbox = makeFakeSandbox({ commandHandler: cloneCommandHandler() });
+    const { module, created, killed } = makeFakeModule(sandbox);
+    let sessionCallIndex = -1;
+    const result = await runCuaActorLab({ cwd, config, dryRun: false, hooks: {
+      env: { OPENAI_API_KEY: "synthetic", E2B_API_KEY: "synthetic" },
+      loadDesktopModule: async () => module,
+      runSession: async (options) => {
+        sessionCallIndex = sandbox.calls.length;
+        return runCuaActorSession({ ...options, openai: { apiKey: "synthetic", fetchFn: scriptedFetch(TWO_TURN_SESSION) } });
+      }
+    } });
+    expect(result.ok).toBe(true);
+    expect(created).toHaveLength(1);
+    expect(created[0]?.envs).toBeUndefined();
+    expect(killed).toEqual([sandbox.sandboxId]);
+    const terminalIndex = scriptIndex(sandbox, "desktop-cli-terminal");
+    expect(terminalIndex).toBeGreaterThan(-1);
+    expect(terminalIndex).toBeLessThan(sessionCallIndex);
+    const runtimeIndex = scriptIndex(sandbox, "desktop-cli-runtime-node");
+    if (runtime) {
+      expect(runtimeIndex).toBeGreaterThan(-1);
+      expect(runtimeIndex).toBeLessThan(terminalIndex);
+      // Use the same checksum-pinned archive and global npm prefix already shell-tested by the
+      // terminal route, including its mutation-free fast path for a working custom runtime.
+      expect(sandbox.calls[runtimeIndex]?.[2]).toContain(TERMINAL_NODE_BOOTSTRAP_COMMAND);
+    } else {
+      expect(runtimeIndex).toBe(-1);
+    }
+    const installIndex = scriptIndex(sandbox, "desktop-cli-install");
+    if (install === undefined) {
+      expect(installIndex).toBe(-1);
+      expect(config.subject.product?.install).toBeUndefined();
+    } else {
+      expect(installIndex).toBeGreaterThan(runtimeIndex);
+      expect(installIndex).toBeLessThan(terminalIndex);
+      expect(sandbox.calls[installIndex]?.[2]).toContain(`( ${install} )`);
+    }
+    expect(sandbox.calls.some(([name]) => name === "open")).toBe(false);
+  });
+
+  it("fails before opening a terminal or starting a participant if the no-install runtime fails", async () => {
+    const sandbox = makeFakeSandbox({ commandHandler: cloneCommandHandler((command) =>
+      command.includes("desktop-cli-runtime-node/status") ? { stdout: "1" } : undefined
+    ) });
+    const { module, killed } = makeFakeModule(sandbox);
+    let sessions = 0;
+    const result = await runCuaActorLab({ cwd, config: configFor(), dryRun: false, hooks: {
+      env: { OPENAI_API_KEY: "synthetic", E2B_API_KEY: "synthetic" },
+      loadDesktopModule: async () => module,
+      runSession: async (options) => {
+        sessions += 1;
+        return runCuaActorSession({ ...options, openai: { apiKey: "synthetic", fetchFn: scriptedFetch(TWO_TURN_SESSION) } });
+      }
+    } });
+    expect(result.ok).toBe(false);
+    expect(result.error?.message).toContain("desktop-cli runtime bootstrap failed");
+    expect(sessions).toBe(0);
+    expect(scriptIndex(sandbox, "desktop-cli-terminal")).toBe(-1);
+    expect(scriptIndex(sandbox, "desktop-cli-install")).toBe(-1);
+    expect(killed).toEqual([sandbox.sandboxId]);
   });
 });
 
