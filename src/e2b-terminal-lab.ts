@@ -56,6 +56,7 @@ import { toErrorMessage } from "./command-failure.js";
 import { buildOpenAiEgressNetwork, E2B_SYSTEM_CA_BUNDLE, OPENAI_EGRESS_PLACEHOLDER } from "./terminal-runtime-auth.js";
 import type { LabConfig, LabScenarioCaps, LabRuntimeAuth } from "./lab-config.js";
 import {
+  E2BDesktopStartupError,
   isSandboxNotFoundError,
   loadE2BDesktopModule,
   type E2BDesktopModule,
@@ -626,8 +627,8 @@ export interface TerminalLedgers {
   /** ALWAYS present; ALWAYS empty while no assisted-input path ships — the safety contract. */
   interventions: InterventionRecord[];
   cleanup: {
-    /** True when Sandbox.kill(id) resolved without throwing (either found-and-killed, or a 404
-     *  meaning the exact id was already gone -- both prove absence; see `remaining`/`reason`). */
+    /** True when exact-id kill resolved, including the startup guard's acquired-instance kill
+     *  (found-and-killed or already gone both prove absence; see `remaining`/`reason`). */
     killed: boolean;
     /** BY-ID proof, NEVER derived from Sandbox.list: 0 = confirmed reclaimed (kill(id) RESOLVED
      *  -- returned true "found and killed" OR false "404, exact id already gone" -- and, when the
@@ -1118,6 +1119,7 @@ async function runLiveTerminalSession(args: RunLiveTerminalSessionArgs): Promise
   let completionReason: ActorCompletionReason = "harness_error";
   let sessionReason = "live terminal-product session did not start";
   let sessionError: string | undefined;
+  let startupCleanup: E2BDesktopStartupError["cleanup"] | undefined;
   let timedOut = false;
   const runtime = declaredRuntimeProvenance({
     ...(config.execution?.runtime?.version === undefined ? {} : { version: config.execution.runtime.version }),
@@ -1404,6 +1406,7 @@ async function runLiveTerminalSession(args: RunLiveTerminalSessionArgs): Promise
       }
     }
   } catch (error) {
+    if (error instanceof E2BDesktopStartupError) startupCleanup = error.cleanup;
     sessionError = sanitize(toErrorMessage(error));
     sessionStatus = "failed";
     completionReason = "harness_error";
@@ -1414,6 +1417,7 @@ async function runLiveTerminalSession(args: RunLiveTerminalSessionArgs): Promise
     cleanup = await teardownSandbox({
       sandboxModule,
       sandbox,
+      ...(startupCleanup === undefined ? {} : { startupCleanup }),
       requestTimeoutMs,
       sanitize,
       recordLifecycle,
@@ -1631,7 +1635,7 @@ async function runLiveTerminalSession(args: RunLiveTerminalSessionArgs): Promise
                 ? "HUMANISH_TERMINAL_LAB_CAPS_EXCEEDED"
                 : "HUMANISH_TERMINAL_LAB_FAILED") as NonNullable<TerminalProductLabResult["error"]>["code"],
             message: !cleanupProven
-              ? `Live terminal-product run could not prove sandbox teardown (killed=${cleanup.killed}, remaining=${cleanup.remaining}): ${cleanup.reason}. A run that cannot prove teardown fails closed.`
+              ? `Live terminal-product run could not prove sandbox teardown (killed=${cleanup.killed}, remaining=${cleanup.remaining}): ${cleanup.reason}. A run that cannot prove teardown fails closed.${sessionError ? ` Session failure: ${sessionError}` : ""}`
               : declaredScorerFailure ?? sessionError ?? observer.error?.message ?? sessionReason
           }
         })
@@ -1866,15 +1870,26 @@ function isAdapterRecord(value: unknown): value is Record<string, unknown> {
 async function teardownSandbox(args: {
   sandboxModule: E2BDesktopModule | undefined;
   sandbox: E2BDesktopSandbox | undefined;
+  startupCleanup?: E2BDesktopStartupError["cleanup"];
   requestTimeoutMs: number;
   sanitize: (text: string) => string;
   recordLifecycle: (event: string, message: string) => void;
   warnings: string[];
 }): Promise<TerminalLedgers["cleanup"]> {
-  const { sandboxModule, sandbox, requestTimeoutMs, sanitize, recordLifecycle, warnings } = args;
+  const { sandboxModule, sandbox, startupCleanup, requestTimeoutMs, sanitize, recordLifecycle, warnings } = args;
   if (!sandbox || !sandboxModule) {
-    recordLifecycle("terminal-lab.cleanup.skipped", "No sandbox was created; nothing to reclaim.");
-    return { killed: false, remaining: 0, reason: "no sandbox created" };
+    // create() can reject AFTER its constructor acquired a handle. The default loader retains
+    // that authority and reclaims it before rejecting; the lane itself never receives its ID.
+    if (startupCleanup === "killed" || startupCleanup === "already_gone") {
+      const reason = `desktop startup guard confirmed its acquired sandbox ${startupCleanup === "killed" ? "was killed" : "was already gone"}`;
+      recordLifecycle("terminal-lab.cleanup.killed", reason);
+      return { killed: true, remaining: 0, reason };
+    }
+    const reason = startupCleanup === "unconfirmed"
+      ? "desktop startup guard could not confirm cleanup of its acquired sandbox; provider timeout remains the backstop"
+      : "create did not return a sandbox; the lane has no acquired handle and cannot establish allocation or cleanup";
+    recordLifecycle("terminal-lab.cleanup.unconfirmed", reason);
+    return { killed: false, remaining: -1, reason };
   }
   if (typeof sandboxModule.Sandbox.kill !== "function") {
     return { killed: false, remaining: -1, reason: "installed @e2b/desktop SDK does not expose Sandbox.kill; server-side kill-on-timeout will reclaim the sandbox" };

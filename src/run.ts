@@ -5409,16 +5409,29 @@ async function writeRunBundleArtifacts(
 }
 
 async function missingLocalEvidenceArtifacts(runPaths: PreparedRunArtifactPaths, bundle: RunBundle): Promise<string[]> {
-  const requiredPaths = new Map<string, { screenshot: boolean }>();
-  const addRequiredPath = (artifactPath: string, options: { screenshot?: boolean } = {}): void => {
+  const requiredPaths = new Map<string, { screenshot: boolean; allowEmpty: boolean }>();
+  const addRequiredPath = (artifactPath: string, options: { screenshot?: boolean; allowEmpty?: boolean } = {}): void => {
     const existing = requiredPaths.get(artifactPath);
-    requiredPaths.set(artifactPath, { screenshot: Boolean(existing?.screenshot || options.screenshot) });
+    requiredPaths.set(artifactPath, {
+      screenshot: Boolean(existing?.screenshot || options.screenshot),
+      // Every consumer must permit emptiness: a terminal log cannot exempt the same path when
+      // another stream, screenshot, or adapter also requires it as nonempty evidence.
+      allowEmpty: options.allowEmpty === true && (existing?.allowEmpty ?? true)
+    });
   };
 
   for (const stream of bundle.streams) {
+    // A session that failed before output (or a silent terminal process) has a real zero-record
+    // NDJSON stream. Both the embedded trace and its retained artifact must declare that fact.
+    const emptyTerminalEvents = isZeroEventTerminalTrace(stream.actor)
+      && isZeroEventTerminalTrace(await readSafeRunArtifactJson(runPaths,
+        stream.artifacts.find((artifact) => artifact.kind === "trace")?.path ?? "actor.json"));
     for (const artifact of stream.artifacts) {
       if (isLocalEvidenceArtifactPath(artifact.path)) {
-        addRequiredPath(artifact.path, { screenshot: artifact.kind === "screenshot" });
+        addRequiredPath(artifact.path, {
+          screenshot: artifact.kind === "screenshot",
+          allowEmpty: artifact.kind === "log" && artifact.path === TERMINAL_EVENTS_FILE && emptyTerminalEvents
+        });
       }
     }
 
@@ -5446,7 +5459,7 @@ async function missingLocalEvidenceArtifacts(runPaths: PreparedRunArtifactPaths,
   const missing: string[] = [];
   for (const [artifactPath, requirements] of requiredPaths) {
     const bytes = await readSafeRunArtifactBytes(runPaths, artifactPath);
-    if (!bytes || bytes.length === 0) {
+    if (!bytes || (bytes.length === 0 && !requirements.allowEmpty)) {
       missing.push(artifactPath);
       continue;
     }
@@ -5460,6 +5473,12 @@ async function missingLocalEvidenceArtifacts(runPaths: PreparedRunArtifactPaths,
   }
 
   return missing;
+}
+
+function isZeroEventTerminalTrace(value: unknown): boolean {
+  return isRecord(value) && value.schema === ACTOR_TRACE_SCHEMA
+    && value.protocol === "terminal-exec" && value.lane === "terminal"
+    && isRecord(value.counts) && value.counts.terminalEvents === 0;
 }
 
 function invalidRunEvidenceReferences(bundle: RunBundle): string[] {
