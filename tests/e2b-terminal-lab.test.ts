@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { Sandbox as SdkDesktop } from "@e2b/desktop";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   LAB_CONFIG_SCHEMA,
@@ -11,7 +12,7 @@ import {
   type LabRuntimeAuth
 } from "../src/lab-config.js";
 import { resolveTerminalPersona, runTerminalProductLab, type TerminalProductLabHooks } from "../src/e2b-terminal-lab.js";
-import type { E2BNetworkOptions } from "../src/e2b-desktop-launch.js";
+import { guardDesktopSandboxCreate, type E2BDesktopCreateOptions, type E2BDesktopModule, type E2BNetworkOptions } from "../src/e2b-desktop-launch.js";
 import { E2B_SYSTEM_CA_BUNDLE, OPENAI_EGRESS_PLACEHOLDER } from "../src/terminal-runtime-auth.js";
 import { prepareSelectedOutputDirectory } from "../src/selected-output-paths.js";
 import { verifyRun } from "../src/run.js";
@@ -219,10 +220,148 @@ function baseEnv(): Record<string, string | undefined> {
   };
 }
 
+// Same real-SDK debug constructor seam as e2b-desktop-create-lease.test.ts. Command/kill
+// method ports are local; no provider HTTP responses or hosted allocations are fabricated.
+function guardedStartupFailure(phase: "Xvfb" | "startxfce4", killResult: boolean | Error) {
+  const killed: number[] = [];
+  let constructed = 0;
+  class ProbeSandbox extends SdkDesktop {
+    constructor(...args: ConstructorParameters<typeof SdkDesktop>) {
+      super(...args);
+      const instance = ++constructed;
+      this.commands.run = (async (command: string) => {
+        if (command.includes(phase)) throw new Error(`synthetic ${phase} startup failure`);
+        return { exitCode: 0, stdout: "", stderr: "", pid: instance, disconnect: async () => undefined };
+      }) as typeof this.commands.run;
+      this.kill = async () => {
+        killed.push(instance);
+        if (killResult instanceof Error) throw killResult;
+        return killResult;
+      };
+    }
+  }
+  const allocation = vi.spyOn(ProbeSandbox as unknown as {
+    createSandbox(...args: unknown[]): Promise<unknown>;
+  }, "createSandbox").mockRejectedValue(new Error("provider allocation forbidden"));
+  const list = vi.spyOn(ProbeSandbox, "list").mockImplementation(() => { throw new Error("account enumeration forbidden"); });
+  const guarded = guardDesktopSandboxCreate({ Sandbox: ProbeSandbox } as unknown as E2BDesktopModule);
+  const module: E2BDesktopModule = { Sandbox: {
+    create(templateOrOptions: string | E2BDesktopCreateOptions, options?: E2BDesktopCreateOptions) {
+      const debugOptions = { ...(typeof templateOrOptions === "string" ? options : templateOrOptions), debug: true } as E2BDesktopCreateOptions;
+      return typeof templateOrOptions === "string"
+        ? guarded.Sandbox.create(templateOrOptions, debugOptions)
+        : guarded.Sandbox.create(debugOptions);
+    }
+  } };
+  return { module, killed, allocation, list, constructed: () => constructed };
+}
+
 describe("runTerminalProductLab (live path, deterministic, no spend)", () => {
   let cwd: string;
   beforeEach(async () => { cwd = await mkdtemp(path.join(tmpdir(), "humanish-tp-live-")); });
-  afterEach(async () => { await rm(cwd, { recursive: true, force: true }); });
+  afterEach(async () => { vi.restoreAllMocks(); await rm(cwd, { recursive: true, force: true }); });
+
+  it.each([
+    ["Xvfb", true], ["startxfce4", true], ["Xvfb", false]
+  ] as const)("keeps guarded %s startup failure verifiable after cleanup resolves %s", async (phase, killResult) => {
+    const probe = guardedStartupFailure(phase, killResult);
+    const result = await runTerminalProductLab({ cwd, config: liveConfig(), dryRun: false, open: false, hooks: {
+      env: baseEnv(), loadModule: async () => probe.module
+    } });
+    expect(result.ok).toBe(false);
+    expect(result.session?.completionReason).toBe("harness_error");
+    expect(result.error).toMatchObject({ code: "HUMANISH_TERMINAL_LAB_FAILED" });
+    expect(result.error?.message).toContain(`synthetic ${phase} startup failure`);
+    expect(result.sandbox).toBeUndefined(); // The lane never received a handle or ID.
+    expect(probe.constructed()).toBe(1);
+    expect(probe.killed).toEqual([1]);
+    expect(probe.allocation).not.toHaveBeenCalled();
+    expect(probe.list).not.toHaveBeenCalled();
+    const runDir = path.join(cwd, ".humanish", "runs", result.runId);
+    const ledgers = JSON.parse(await readFile(path.join(runDir, "terminal-ledgers.json"), "utf8"));
+    expect(ledgers.cleanup).toMatchObject({ killed: true, remaining: 0 });
+    expect(ledgers.cleanup.reason).toContain("startup guard");
+    expect(ledgers.cleanup.reason).toContain(killResult ? "killed" : "already gone");
+    expect(JSON.stringify(ledgers.lifecycle)).not.toContain("No sandbox was created");
+    expect(await readFile(path.join(runDir, "terminal-events.ndjson"), "utf8")).toBe("");
+    expect(result.observer?.ok).toBe(true);
+    expect((await verifyRun(cwd, result.runId)).ok).toBe(true);
+  });
+
+  it("keeps unconfirmed guarded cleanup failed closed with the startup cause visible", async () => {
+    const probe = guardedStartupFailure("Xvfb", new Error("synthetic-cleanup-secret"));
+    const result = await runTerminalProductLab({ cwd, config: liveConfig(), dryRun: false, open: false, hooks: {
+      env: baseEnv(), loadModule: async () => probe.module
+    } });
+    expect(result.error?.code).toBe("HUMANISH_TERMINAL_LAB_CLEANUP_UNPROVEN");
+    expect(result.error?.message).toContain("synthetic Xvfb startup failure");
+    expect(JSON.stringify(result)).not.toContain("synthetic-cleanup-secret");
+    expect(probe.killed).toEqual([1]);
+    expect(probe.allocation).not.toHaveBeenCalled();
+    expect(probe.list).not.toHaveBeenCalled();
+    const ledgers = JSON.parse(await readFile(path.join(cwd, ".humanish", "runs", result.runId, "terminal-ledgers.json"), "utf8"));
+    expect(ledgers.cleanup).toMatchObject({ killed: false, remaining: -1 });
+    expect((await verifyRun(cwd, result.runId)).ok).toBe(false);
+  });
+
+  it("does not infer allocation absence when create rejects before returning a handle", async () => {
+    const killed: string[] = [];
+    const result = await runTerminalProductLab({ cwd, config: liveConfig(), dryRun: false, open: false, hooks: {
+      env: baseEnv(), loadModule: async () => makeFakeModule({ creates: [], runs: [], killed,
+        createError: new Error("synthetic create response lost"), codexBehavior: () => { throw new Error("must not execute"); } })
+    } });
+    expect(result.error?.code).toBe("HUMANISH_TERMINAL_LAB_CLEANUP_UNPROVEN");
+    expect(result.error?.message).toContain("synthetic create response lost");
+    expect(killed).toEqual([]);
+    const ledgers = JSON.parse(await readFile(path.join(cwd, ".humanish", "runs", result.runId, "terminal-ledgers.json"), "utf8"));
+    expect(ledgers.cleanup).toMatchObject({ killed: false, remaining: -1 });
+    expect(ledgers.cleanup.reason).toContain("no acquired handle");
+    expect(JSON.stringify(ledgers.lifecycle)).not.toContain("No sandbox was created");
+  });
+
+  it("verifies a zero-output terminal session but rejects missing, contradicted, or unrelated empty evidence", async () => {
+    const result = await runTerminalProductLab({ cwd, config: liveConfig(), dryRun: false, open: false, hooks: {
+      env: baseEnv(), loadModule: async () => makeFakeModule({ creates: [], runs: [], killed: [], codexBehavior: () => ({ exitCode: 0 }) })
+    } });
+    expect(result.session?.status).toBe("blocked");
+    expect((await verifyRun(cwd, result.runId)).ok).toBe(true);
+    const runDir = path.join(cwd, ".humanish", "runs", result.runId);
+    const bundlePath = path.join(runDir, "run.json");
+    const originalBundle = await readFile(bundlePath, "utf8");
+    const tracePath = path.join(runDir, "actor.json");
+    const originalTrace = await readFile(tracePath, "utf8");
+    const eventsPath = path.join(runDir, "terminal-events.ndjson");
+    const missing = async (artifact = "terminal-events.ndjson") => {
+      const verified = await verifyRun(cwd, result.runId);
+      expect(verified.ok).toBe(false);
+      expect(verified.checks.find((check) => check.name === "local evidence artifacts exist")?.message).toContain(artifact);
+    };
+    await rm(eventsPath);
+    await missing();
+    await writeFile(eventsPath, "");
+
+    const positiveTrace = JSON.parse(originalTrace);
+    positiveTrace.counts.terminalEvents = 1;
+    await writeFile(tracePath, JSON.stringify(positiveTrace));
+    await missing();
+    await writeFile(tracePath, originalTrace);
+
+    for (const mutation of ["positive-count", "missing-count", "nonterminal", "screenshot", "other-log", "shared-reference"]) {
+      const bundle = JSON.parse(originalBundle);
+      const stream = bundle.streams[0];
+      const artifact = stream.artifacts.find((entry: { path: string }) => entry.path === "terminal-events.ndjson");
+      if (mutation === "positive-count") stream.actor.counts.terminalEvents = 1;
+      if (mutation === "missing-count") delete stream.actor.counts.terminalEvents;
+      if (mutation === "nonterminal") stream.actor.protocol = "json-stream";
+      if (mutation === "screenshot") artifact.kind = "screenshot";
+      if (mutation === "other-log") { artifact.path = "other-empty.log"; await writeFile(path.join(runDir, artifact.path), ""); }
+      if (mutation === "shared-reference") bundle.adapterArtifacts = [{ schema: "humanish.adapter-artifact.v1", namespace: "synthetic", label: "other consumer", path: "terminal-events.ndjson", kind: "log", note: "Requires nonempty evidence." }];
+      await writeFile(bundlePath, JSON.stringify(bundle));
+      await missing(mutation === "other-log" ? "other-empty.log" : undefined);
+    }
+    await writeFile(bundlePath, originalBundle);
+    expect((await verifyRun(cwd, result.runId)).ok).toBe(true);
+  });
 
   it("records dry-run runtime declarations without resolving or allocating", async () => {
     const config = liveConfig();
