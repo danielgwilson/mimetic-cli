@@ -93,7 +93,14 @@ function makeFakeModule(commandHandler: (command: string) => { stdout?: string }
       create: async (templateOrOptions: string | E2BDesktopCreateOptions, maybeOptions?: E2BDesktopCreateOptions) => {
         const createOptions = typeof templateOrOptions === "string" ? maybeOptions! : templateOrOptions;
         n += 1;
-        const sandbox = makeFakeSandbox(`fake-sandbox-${String(n).padStart(3, "0")}`, commandHandler);
+        const [width, height] = createOptions.resolution ?? [1440, 950];
+        // Each seat's physical desktop follows its device; the former fixed desktop-size fake
+        // accidentally put the browser outside every phone screen (#702).
+        const sandbox = makeFakeSandbox(`fake-sandbox-${String(n).padStart(3, "0")}`, (command) => {
+          if (command.includes("xdpyinfo")) return { stdout: `dimensions: ${width}x${height} pixels\n` };
+          if (command.includes("getwindowgeometry")) return { stdout: `X=0\nY=0\nWIDTH=${width}\nHEIGHT=${height}\n` };
+          return commandHandler(command);
+        });
         created.push(createOptions);
         sandboxes.push(sandbox);
         return sandbox;
