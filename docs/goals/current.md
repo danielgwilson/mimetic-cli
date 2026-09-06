@@ -1,6 +1,6 @@
 # Current Goals
 
-Status date: 2026-09-06 (rev 19)
+Status date: 2026-09-06 (rev 20)
 
 This page is the current public-safe operating goal for `humanish`. Keep it
 short enough to reread before a coding session and concrete enough that future
@@ -29,7 +29,7 @@ study completed, reproduced, and produced a real accessibility finding via a
 keyboard-first participant
 ([docs/goals/email-gated-signup/receipts/](email-gated-signup/receipts/)).
 
-## Current Program Truth (source `0.83.0`)
+## Current Program Truth (source `0.83.1`)
 
 The package source and repository implementation in this tree agree on these
 points:
@@ -50,7 +50,7 @@ The immutable 2026-06-10 proof-roadmap packet is paired with a
 | Actor execution | Six first-party registry descriptors; computer-use, scripted-browser, and terminal-product dispatch paths. `0.55.0` makes reasoning effort declarable per actor and per lane and records the resolved value on the trace (`humanish.model-settings.v1`) — it had been reachable in the provider and unreachable from a lab, so every prior run silently took the provider default | Public out-of-tree actor registration and conformance certification |
 | Persona scale | Bounded per-lane-world fan-out, including differentiated lanes and roster expansion; kept deterministic and live receipts | A completed first-party deletion branch that replaces a bespoke generic harness |
 | Shared state | Sequential and concurrent single-origin shared-world execution; sequential has deterministic proof, concurrent has deterministic and kept live proof | Multi-origin shared-world runtime/schema support; real-adopter deletion proof |
-| Subject sources/routes | Six declared sources: `this-repo`, `clone`, `app-url`, `local-app`, `terminal-product`, and `local-tree`; support is route-specific and `this-repo` remains dry-run-only | One centralized run/resource lifecycle boundary across all routes |
+| Subject sources/routes | Seven declared sources: `this-repo`, `clone`, `app-url`, `local-app`, `terminal-product`, `desktop-cli`, and `local-tree`; support is route-specific and `this-repo` remains dry-run-only | One centralized run/resource lifecycle boundary across all routes |
 | Public proof | A legible four-persona Observer hero from a verified real public-application study (commit-pinned drawDB) shipped in the npm payload (`0.16.0`) | Coverage beyond a single studied subject; the stratified breadth panel remains unbuilt |
 | OSS meta-lab | Dry-run contract and separate disposable smoke harness | Live meta-lab execution; disabled until repository instructions and actor credentials have an isolated boundary |
 | Observer serving | `watch`/`observe` loopback servers plus `serve` — the run-library surface with loopback default, capability-link exposure, `share_ready`-gated open mode, and optional operator-run tunnel; streams never served remotely | A remote live-stream (`--live-streams`) design; a persistent capability-link store |
@@ -471,6 +471,23 @@ Stop and correct course if:
 
 ## Best Next Work
 
+**2026-09-06 (0.83.1).** Desktop CLI studies without a declared product install
+now prepare Node/npm before participant entry, while leaving the product
+uninstalled. Two real stock desktops began without the runtime and reached the
+entry hook with Node/npm/npx available in ordinary and sudo shells. The hook
+then stopped deliberately without starting a participant or model. See the
+[runtime conformance receipt](https://github.com/danielgwilson/humanish/blob/main/docs/goals/computer-use-actor/receipts/desktop-cli-runtime-2026-09-06.md).
+
+Terminal startup failures preserve confirmed cleanup from the desktop startup
+guard. An existing empty terminal event log is valid only when both embedded
+and retained terminal traces declare zero events. Unknown cleanup stays
+unproven, and a failed startup remains a failed run. The compiled CLI regression
+checks verified failure evidence and natural process exit using the installed
+SDK's debug constructor with network access blocked. Two hosted startup-fault
+controls also verified failed bundles, prompt natural exit and exact sandbox
+absence with real provider transports. See the
+[startup evidence receipt](https://github.com/danielgwilson/humanish/blob/main/docs/goals/computer-use-actor/receipts/terminal-startup-evidence-2026-09-06.md).
+
 **2026-09-06 (0.83.0).** First-party OpenAI computer-use actors accept
 an optional per-response `maxOutputTokens` setting. Two independent lanes and two
 sequential shared-world roles forwarded the declared limit in real requests; all
@@ -646,9 +663,10 @@ are available; the documentation gap from #513 is closed.
 Remaining engineering work includes:
 
 - #581: #665 already reclaims acquired desktop instances when startup fails,
-  and #666 handles detached screenshot cleanup errors. Remaining boundaries are
-  allocation ambiguity before instance acquisition, unconfirmed reclamation,
-  and direct proof that a failed real-SDK CLI exits promptly after its result.
+  and #666 handles detached screenshot cleanup errors. The compiled CLI now has
+  deterministic exit proof and two hosted startup-fault receipts. Remaining
+  boundaries are allocation ambiguity before instance acquisition, unconfirmed
+  reclamation, and exit behavior after other provider/network failures.
   The 2.3.3 SDK update fixed the identified background stream holder; older
   optional peers still receive an advisory, so a universal no-linger claim
   would be too broad.
