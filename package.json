@@ -1,6 +1,6 @@
 {
   "name": "humanish",
-  "version": "0.82.1",
+  "version": "0.83.0",
   "description": "Open-source-safe CLI for persona simulation, observer review, and public-safe feedback drafts.",
   "author": "Daniel G Wilson <daniel@danielgwilson.com>",
   "keywords": [

@@ -1,6 +1,6 @@
 # Current Goals
 
-Status date: 2026-08-11 (rev 18)
+Status date: 2026-09-06 (rev 19)
 
 This page is the current public-safe operating goal for `humanish`. Keep it
 short enough to reread before a coding session and concrete enough that future
@@ -29,7 +29,7 @@ study completed, reproduced, and produced a real accessibility finding via a
 keyboard-first participant
 ([docs/goals/email-gated-signup/receipts/](email-gated-signup/receipts/)).
 
-## Current Program Truth (source `0.82.1`)
+## Current Program Truth (source `0.83.0`)
 
 The package source and repository implementation in this tree agree on these
 points:
@@ -471,14 +471,26 @@ Stop and correct course if:
 
 ## Best Next Work
 
-**2026-09-06 (source; not npm 0.82.1).** First-party OpenAI computer-use actors accept
+**2026-09-06 (0.83.0).** First-party OpenAI computer-use actors accept
 an optional per-response `maxOutputTokens` setting. Two independent lanes and two
 sequential shared-world roles forwarded the declared limit in real requests; all
 four preserved provider truncation as incomplete, with zero actions or closing
 requests. The same scoped integration confirmed sequential actor-level reasoning
 effort and a lane override on the request and trace. This proves configuration
 propagation, not participant success or persona efficacy. See the
-[four-role live receipt](computer-use-actor/receipts/output-token-limit-2026-09-06.md).
+[four-role live receipt](https://github.com/danielgwilson/humanish/blob/main/docs/goals/computer-use-actor/receipts/output-token-limit-2026-09-06.md).
+
+Hosted browser setup checks physical X window bounds before participant actions.
+A clipped window gets one correction and a measured readback; a window that
+remains clipped stops the lane. Two hosted fault-injection probes restored a
+bottom-edge button and clicked it successfully. This checks desktop containment,
+not mobile gesture fidelity. See the [desktop geometry receipt](https://github.com/danielgwilson/humanish/blob/main/docs/goals/computer-use-actor/receipts/desktop-geometry-2026-09-06.md).
+
+Recovery hints now allow task-directed waiting and suggest recovery without
+asking a participant to abandon early. Deterministic delayed-start tests cover
+the prompt change and unchanged hard idle limits; live multiplayer patience
+has not been measured. Lane and roster-group objects reject unknown fields
+before allocation, so misspelled controls cannot silently become defaults.
 
 **2026-09-05 (0.82.1).** Computer-use actors now preserve a provider output-limit
 interruption as incomplete instead of treating a response without actions as
@@ -624,24 +636,28 @@ study-participant marker nothing set (#546), hung turns that ate a lane's budget
 and a Claude participant with no memory across turns (#520). `humanish stats` (#472) and
 `humanish export` (#471) exist as CLI commands.
 
-The standing queue, in rough order:
+The next outcome to establish is an external maintainer using Humanish on their
+own app, finding a useful problem, repairing it and retaining a comparable rerun.
+The published studies establish synthetic capability on their named subjects;
+they do not establish external adoption or incremental persona value.
+[Runnable documentation](https://humanish.dev/docs) and the repair-study recipe
+are available; the documentation gap from #513 is closed.
 
-1. #509, the microphone tier: a custom desktop image with an audio stack
-   (`execution.desktop.template`), then `media.microphone` threaded into the launch the way the
-   camera is; the parse-time refusal stands until then;
-2. #581, the remaining half: a `Sandbox.create` that fails after the API allocated the sandbox
-   (the desktop SDK's own startup) leaves a sandbox this run never learned the id of, reclaimed only
-   by the provider's timeout; the linger itself is the SDK's held command stream, closed by the
-   2.3.3 bump (0.78.0), and `doctor` names an older SDK; the upstream ask is drafted for the
-   operator;
-3. #221's later tier, a real device or simulator behind the emulated lane, and #623's
-   scripted-browser route, which has no model loop and so no dwell or later-tab applier;
-4. #513: there is still nowhere to read the docs on humanish.dev (site copy is locked; a docs
-   route needs the operator's sign-off);
-5. the TUI views over `stats` and `export` (#455's metrics screen and `s` key), design-gated;
-6. the launch post: a draft with every number and its receipt path sits outside the public repo,
-   awaiting the operator; nothing has been announced;
-7. registry promotions (#431) and the shared-world honesty half (#365, #446), unchanged.
+Remaining engineering work includes:
+
+- #581: #665 already reclaims acquired desktop instances when startup fails,
+  and #666 handles detached screenshot cleanup errors. Remaining boundaries are
+  allocation ambiguity before instance acquisition, unconfirmed reclamation,
+  and direct proof that a failed real-SDK CLI exits promptly after its result.
+  The 2.3.3 SDK update fixed the identified background stream holder; older
+  optional peers still receive an advisory, so a universal no-linger claim
+  would be too broad.
+- #509: microphone support requires a desktop image with an audio stack and
+  the matching launch path. The unsupported declaration remains rejected.
+- #221 and #676: real-device and touch-input fidelity beyond viewport emulation;
+  #623: scripted-browser support beyond its current model-free route.
+- TUI views over `stats` and `export` (#455), registry promotions (#431), and
+  the remaining shared-world evidence work (#365, #446).
 
 Earlier state, kept for the record:
 

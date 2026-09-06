@@ -41,10 +41,10 @@ A lab's subject, execution target, actor, and scenario jointly determine its rou
 Declaring a field does not make every route support it. Read preflight warnings;
 unsupported compositions fail closed or identify inert fields.
 
-On repository main, lane and roster-group objects reject unknown fields before
-a run starts. For example, `runtme` produces `HUMANISH_LAB_INVALID` with the group
-or lane index; it cannot silently become a default lane. Published npm version
-0.82.1 does not include this check. Use `instruction` for a lane's steer.
+In Humanish `0.83.0` and later, lane and roster-group objects reject unknown fields
+before a run starts. For example, `runtme` produces `HUMANISH_LAB_INVALID` with the
+group or lane index; it cannot silently become a default lane. Use `instruction`
+for a lane's steer.
 
 | Subject source | Use |
 | --- | --- |
