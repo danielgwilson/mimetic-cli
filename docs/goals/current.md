@@ -471,6 +471,15 @@ Stop and correct course if:
 
 ## Best Next Work
 
+**2026-09-06 (source; not npm 0.82.1).** First-party OpenAI computer-use actors accept
+an optional per-response `maxOutputTokens` setting. Two independent lanes and two
+sequential shared-world roles forwarded the declared limit in real requests; all
+four preserved provider truncation as incomplete, with zero actions or closing
+requests. The same scoped integration confirmed sequential actor-level reasoning
+effort and a lane override on the request and trace. This proves configuration
+propagation, not participant success or persona efficacy. See the
+[four-role live receipt](computer-use-actor/receipts/output-token-limit-2026-09-06.md).
+
 **2026-09-05 (0.82.1).** Computer-use actors now preserve a provider output-limit
 interruption as incomplete instead of treating a response without actions as
 success. Two captured live Responses API shapes reproduce the old false pass

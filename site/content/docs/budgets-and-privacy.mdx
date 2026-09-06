@@ -68,6 +68,9 @@ routes do not yet emit these per-desktop compute estimates.
 
 ## Choose a model
 
+The `maxOutputTokens` control below is available in repository source and is not
+included in npm `0.82.1`.
+
 For first-party OpenAI computer-use studies, optional `actors[0].maxOutputTokens`
 sets a positive integer limit on each response's output, including reasoning
 tokens. It applies to every participant, continuation and retry. A closing
