@@ -1,6 +1,6 @@
 # Current Goals
 
-Status date: 2026-09-06 (rev 19)
+Status date: 2026-09-06 (rev 20)
 
 This page is the current public-safe operating goal for `humanish`. Keep it
 short enough to reread before a coding session and concrete enough that future
@@ -50,7 +50,7 @@ The immutable 2026-06-10 proof-roadmap packet is paired with a
 | Actor execution | Six first-party registry descriptors; computer-use, scripted-browser, and terminal-product dispatch paths. `0.55.0` makes reasoning effort declarable per actor and per lane and records the resolved value on the trace (`humanish.model-settings.v1`) — it had been reachable in the provider and unreachable from a lab, so every prior run silently took the provider default | Public out-of-tree actor registration and conformance certification |
 | Persona scale | Bounded per-lane-world fan-out, including differentiated lanes and roster expansion; kept deterministic and live receipts | A completed first-party deletion branch that replaces a bespoke generic harness |
 | Shared state | Sequential and concurrent single-origin shared-world execution; sequential has deterministic proof, concurrent has deterministic and kept live proof | Multi-origin shared-world runtime/schema support; real-adopter deletion proof |
-| Subject sources/routes | Six declared sources: `this-repo`, `clone`, `app-url`, `local-app`, `terminal-product`, and `local-tree`; support is route-specific and `this-repo` remains dry-run-only | One centralized run/resource lifecycle boundary across all routes |
+| Subject sources/routes | Seven declared sources: `this-repo`, `clone`, `app-url`, `local-app`, `terminal-product`, `desktop-cli`, and `local-tree`; support is route-specific and `this-repo` remains dry-run-only | One centralized run/resource lifecycle boundary across all routes |
 | Public proof | A legible four-persona Observer hero from a verified real public-application study (commit-pinned drawDB) shipped in the npm payload (`0.16.0`) | Coverage beyond a single studied subject; the stratified breadth panel remains unbuilt |
 | OSS meta-lab | Dry-run contract and separate disposable smoke harness | Live meta-lab execution; disabled until repository instructions and actor credentials have an isolated boundary |
 | Observer serving | `watch`/`observe` loopback servers plus `serve` — the run-library surface with loopback default, capability-link exposure, `share_ready`-gated open mode, and optional operator-run tunnel; streams never served remotely | A remote live-stream (`--live-streams`) design; a persistent capability-link store |

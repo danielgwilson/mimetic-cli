@@ -77,9 +77,10 @@ Implemented:
   drives a lab-owner loopback app in a hosted desktop, and `subject.source:
   clone` + `serve` clones, installs, and serves a real app in-sandbox from
   config before the actor drives it (`src/cua-actor-lab.ts`);
-- six declared subject sources: `this-repo` (dry-run-only), `clone`, `app-url`,
+- seven declared subject sources: `this-repo` (dry-run-only), `clone`, `app-url`,
   `local-app` (library-assisted, in-process, no desktop), `terminal-product`,
-  and `local-tree`; each route fails closed on unsupported combinations;
+  `desktop-cli` (computer-use participant at a terminal), and `local-tree`;
+  each route fails closed on unsupported combinations;
 - bounded per-lane-world fan-out (`actors[0].count`, `lanes[]`, or `roster[]`),
   backed by deterministic and kept live proof;
 - sequential/concurrent single-origin shared-world execution: sequential has
