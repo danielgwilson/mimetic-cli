@@ -42,6 +42,7 @@ import type { CuaActorSessionOptions } from "./computer-use-actor.js";
 import type { CuaLoopResult } from "./computer-use.js";
 import { labPersonaIds, resolveCommittedPersonasForCwd } from "./persona-resolve.js";
 import type { ResolvedPersona } from "./persona.js";
+import type { ReasoningEffort } from "./reasoning-effort.js";
 import {
   commandDigestOf,
   composeLaneInstructions,
@@ -292,6 +293,8 @@ interface RoleSpec {
   instructions: string;
   /** The role's declared device (a PROMPT SIGNAL — see the file's FIDELITY NOTE). */
   deviceName: string;
+  /** Lane override, then actor default; omitted preserves the provider default. */
+  reasoningEffort?: ReasoningEffort;
   /** Deterministic harness-owned completion guard. Lane-level override, else actor default. */
   stopWhen?: StopWhen;
   /** A declared observation window (#510). Lane-level override, else actor default. */
@@ -556,6 +559,9 @@ function buildRoleSpecs(
       persona: composed.persona,
       instructions: composed.instructions,
       deviceName: device.name,
+      ...((lane.reasoningEffort ?? actor?.reasoningEffort) === undefined
+        ? {}
+        : { reasoningEffort: (lane.reasoningEffort ?? actor?.reasoningEffort) as ReasoningEffort }),
       ...((lane.stopWhen ?? actor?.stopWhen) === undefined ? {} : { stopWhen: (lane.stopWhen ?? actor?.stopWhen) as StopWhen }),
       ...((lane.dwell ?? actor?.dwell) === undefined ? {} : { dwell: (lane.dwell ?? actor?.dwell) as DwellWindow }),
       ...(lane.entry === undefined ? {} : { entry: lane.entry }),
@@ -912,7 +918,8 @@ async function runSharedWorldLabInScope(options: RunSharedWorldLabOptions): Prom
             timeoutMs,
             openai: {
               apiKey: openaiApiKey,
-              ...(config.actors[0]?.model ? { model: config.actors[0]!.model } : {})
+              ...(config.actors[0]?.model ? { model: config.actors[0]!.model } : {}),
+              ...(spec.reasoningEffort === undefined ? {} : { reasoningEffort: spec.reasoningEffort })
             },
             desktop: desktop as unknown as E2BDesktopLike,
             ...(launchedBrowserFamily === "chromium"
