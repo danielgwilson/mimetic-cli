@@ -478,13 +478,13 @@ four preserved provider truncation as incomplete, with zero actions or closing
 requests. The same scoped integration confirmed sequential actor-level reasoning
 effort and a lane override on the request and trace. This proves configuration
 propagation, not participant success or persona efficacy. See the
-[four-role live receipt](computer-use-actor/receipts/output-token-limit-2026-09-06.md).
+[four-role live receipt](https://github.com/danielgwilson/humanish/blob/main/docs/goals/computer-use-actor/receipts/output-token-limit-2026-09-06.md).
 
 Hosted browser setup checks physical X window bounds before participant actions.
 A clipped window gets one correction and a measured readback; a window that
 remains clipped stops the lane. Two hosted fault-injection probes restored a
 bottom-edge button and clicked it successfully. This checks desktop containment,
-not mobile gesture fidelity. See the [desktop geometry receipt](computer-use-actor/receipts/desktop-geometry-2026-09-06.md).
+not mobile gesture fidelity. See the [desktop geometry receipt](https://github.com/danielgwilson/humanish/blob/main/docs/goals/computer-use-actor/receipts/desktop-geometry-2026-09-06.md).
 
 Recovery hints now allow task-directed waiting and suggest recovery without
 asking a participant to abandon early. Deterministic delayed-start tests cover
