@@ -23,6 +23,7 @@ import {
 } from "../src/shared-world-lab.js";
 import type { BrowserLabScoringContext, RunAdapterScore, RunBundle, SubjectPhaseEvent } from "../src/index.js";
 import { verifyRun } from "../src/run.js";
+import { createOpenAiResponsesProvider, DEFAULT_OPENAI_CU_REASONING_EFFORT } from "../src/openai-responses-cu.js";
 import type { LocalTreeArchive } from "../src/source-archive.js";
 
 // ---------------------------------------------------------------------------
@@ -701,6 +702,32 @@ describe("runSharedWorldLab (the heart: real orchestration vs fakes, $0)", () =>
 
     expect(result.ok).toBe(true);
     expect(seen).toEqual([actorDefault, laneOverride]);
+  });
+
+  it.each([
+    { actor: "low" as const, lane: "high" as const, declared: ["low", "high"], effective: ["low", "high"] },
+    { actor: undefined, lane: "high" as const, declared: [undefined, "high"], effective: [DEFAULT_OPENAI_CU_REASONING_EFFORT, "high"] },
+    { actor: undefined, lane: undefined, declared: [undefined, undefined], effective: [DEFAULT_OPENAI_CU_REASONING_EFFORT, DEFAULT_OPENAI_CU_REASONING_EFFORT] }
+  ])("forwards sequential role reasoning effort with lane precedence and omission preserved: $declared", async ({ actor, lane, declared, effective }) => {
+    const state = { worldVersion: 0 };
+    const { hooks } = baseHooks(state);
+    const config = sharedWorldConfig();
+    if (actor !== undefined) config.actors[0]!.reasoningEffort = actor;
+    if (lane !== undefined) config.actors[0]!.lanes![1]!.reasoningEffort = lane;
+    const seen: Array<string | undefined> = [];
+    const settings: Array<string | undefined> = [];
+    hooks.runSession = makeRunSession(state, (_index, options) => {
+      seen.push(options.openai?.reasoningEffort);
+      settings.push(createOpenAiResponsesProvider(options.openai!).modelSettings?.reasoningEffort);
+      if (options.openai?.reasoningEffort === undefined) expect(options.openai).not.toHaveProperty("reasoningEffort");
+      return undefined;
+    });
+
+    const outcome = await runLab(config, { cwd, dryRun: false, sharedWorldHooks: hooks });
+
+    expect(outcome.result.ok).toBe(true);
+    expect(seen).toEqual(declared);
+    expect(settings).toEqual(effective);
   });
 
   it("an explicit per-role budget that would push the ONE sandbox past the provider's 60-minute cap fails closed before any create, with the arithmetic", async () => {
