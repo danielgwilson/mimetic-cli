@@ -28,8 +28,14 @@ Cumulative across both brains: 72 of 75 planted defects reported over five bench
 
 ## Precision: nothing invented, and one thing the clean build does that nobody had typed far enough to see
 
-No planted-defect class was reported against the clean build. What all three raised is true of
-the app and verifiable in `bench/taskly-clean`:
+**Scoring correction — 2026-09-06 ([#652](https://github.com/danielgwilson/humanish/issues/652)):**
+The original opening, "No planted-defect class was reported against the clean build," was too
+broad: two participants reported silent truncation at the baseline's 120-character cap, the
+same class as D2. Clean means the five planted mutations are absent, not that the app is
+defect-free. The fixture and observations below are retained unchanged; this is a wording and
+[scoring correction](DEFECTS.md#scoring), not a new run or a recount.
+
+What these participants raised is true of the app and verifiable in `bench/taskly-clean`:
 
 - "My long task got cut off without any warning" (2 of 3). The add box carries `maxlength="120"`
   (`index.html:41`); these participants type sentences of 130 characters and more, where the
@@ -44,6 +50,8 @@ Eighteen clean runs across both brains, 0 invented. The 120-character attribute 
 design note: the clean fixture carries a real silent limit that a longer-typing participant
 reaches. It stays as it is so the cumulative numbers keep their meaning; a future revision of the
 fixture should either drop the attribute or show the limit.
+Those historical totals are retained from the original review. They do not supply a complete
+finding-level denominator, so this correction makes no numeric precision estimate.
 
 ## What differs by brain
 
