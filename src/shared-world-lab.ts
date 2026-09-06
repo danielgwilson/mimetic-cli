@@ -916,6 +916,9 @@ async function runSharedWorldLabInScope(options: RunSharedWorldLabOptions): Prom
           initialBrowserGeometry = browserGeometry;
           browserWindowId = browserGeometry.browserWindowId;
           browserTargetId = browserGeometry.browserTargetId;
+          if (browserGeometry.unusable !== undefined) {
+            throw new Error(`HUMANISH_CUA_LAB_DEVICE_GEOMETRY: ${browserGeometry.unusable} Participant actions were not started.`);
+          }
           const sessionOptions: CuaActorSessionOptions = {
             instructions: spec.instructions,
             persona: spec.persona,
@@ -976,7 +979,7 @@ async function runSharedWorldLabInScope(options: RunSharedWorldLabOptions): Prom
           const chosenGeometry = finalGeometry.browserWindow !== undefined || finalGeometry.viewport !== undefined
             ? finalGeometry
             : initialBrowserGeometry ?? finalGeometry;
-          const geometryWarnings = [...new Set(chosenGeometry.warnings.map((warning) => scrubKnownValues(warning)))];
+          const geometryWarnings = [...new Set([...(initialBrowserGeometry?.warnings ?? []), ...chosenGeometry.warnings].map((warning) => scrubKnownValues(warning)))];
           warnings.push(...geometryWarnings);
           desktopGeometry = {
             ...sharedScreenGeometry,

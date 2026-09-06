@@ -429,6 +429,25 @@ describe("runSharedWorldLab (the heart: real orchestration vs fakes, $0)", () =>
     expect(verify.ok).toBe(true);
   });
 
+  it("refuses clipped sequential seats before participant actions and cleans the shared desktop", async () => {
+    const { hooks, sandbox, killed } = baseHooks({ worldVersion: 0 });
+    const run = sandbox.commands.run.bind(sandbox.commands);
+    sandbox.commands.run = async (command, options) => command.includes("getwindowgeometry")
+      ? { stdout: "X=0\nY=32\nWIDTH=1440\nHEIGHT=950\n", exitCode: 0 }
+      : run(command, options);
+    let participantSessions = 0;
+    hooks.runSession = async () => { participantSessions++; throw new Error("participant must not start"); };
+    const result = await runSharedWorldLab({ cwd, config: sharedWorldConfig(), dryRun: false, hooks });
+    expect(result.ok).toBe(false);
+    expect(participantSessions).toBe(0);
+    expect(killed).toEqual([sandbox.sandboxId]);
+    const bundle = JSON.parse(await readFile(path.join(cwd, ".humanish", "runs", result.runId, "run.json"), "utf8"));
+    expect(bundle.streams).toHaveLength(2);
+    expect(bundle.streams[0].desktopGeometry.warnings.join(" ")).toContain("outside the captured");
+    // A failed first seat ends the sequential run; the unstarted seat has no invented bounds.
+    expect(bundle.streams[1].desktopGeometry.browserWindow).toBeUndefined();
+  });
+
   it("records requested + verified screen, browser outer bounds, and the measured CSS viewport as distinct geometry", async () => {
     const state = { worldVersion: 0 };
     const { hooks } = baseHooks(state);
@@ -442,7 +461,7 @@ describe("runSharedWorldLab (the heart: real orchestration vs fakes, $0)", () =>
           requested: FAKE_SCREEN_GEOMETRY,
           verified: { ...FAKE_SCREEN_GEOMETRY, source: "xdpyinfo" }
         },
-        browserWindow: { ...FAKE_BROWSER_WINDOW, source: "cdp" },
+        browserWindow: { ...FAKE_BROWSER_WINDOW, source: "xdotool" },
         viewport: { ...FAKE_CSS_VIEWPORT, source: "cdp" }
       });
       expect(stream.viewport).toEqual({

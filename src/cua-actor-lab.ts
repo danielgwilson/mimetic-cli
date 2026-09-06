@@ -1561,9 +1561,8 @@ export function buildFillDesktopWindowCommand(
 }
 
 /**
- * Best-effort: resize the detected browser window to fill the lane's desktop
- * resolution. A failure must never fail the lane (the actor can still run on a
- * smaller window), so all errors are swallowed.
+ * Best-effort initial fill. A contained smaller window remains usable; the capture
+ * below checks for clipping and refuses an uncorrectable window before the actor runs.
  */
 async function fillDesktopBrowserWindow(
   desktop: E2BDesktopSandbox,
@@ -2017,6 +2016,41 @@ async function measureBrowserWindowWithXdotool(
   return { x, y, width, height, source: "xdotool" };
 }
 
+/** Physical X client bounds, never the page's emulated window.outerWidth/Height. */
+function isBrowserWindowContained(
+  bounds: NonNullable<RunDesktopGeometry["browserWindow"]>,
+  [width, height]: readonly [number, number]
+): boolean {
+  return bounds.x >= 0 && bounds.y >= 0
+    && bounds.x + bounds.width <= width && bounds.y + bounds.height <= height;
+}
+
+/** One bounded repair. Window-manager decorations may keep the client origin below (0, 0),
+ * so a full-screen client height can clip the bottom even after windowmove succeeds. */
+async function fitBrowserWindowWithinDesktop(
+  desktop: E2BDesktopSandbox,
+  windowId: string,
+  resolution: readonly [number, number],
+  requestTimeoutMs: number
+): Promise<RunDesktopGeometry["browserWindow"] | undefined> {
+  const run = (command: string) => desktop.commands.run([
+    "set -euo pipefail",
+    `win=${shellSingleQuote(windowId)}`,
+    command
+  ].join("\n"), { requestTimeoutMs, timeoutMs: 5_000 }).catch(() => undefined);
+  await run('xdotool windowmove "$win" 0 0');
+  await desktop.wait(250).catch(() => undefined);
+  const moved = await measureBrowserWindowWithXdotool(desktop, windowId, requestTimeoutMs).catch(() => undefined);
+  // A failed move cannot be repaired by resizing a window whose origin is offscreen.
+  if (moved === undefined || moved.x < 0 || moved.y < 0) return moved;
+  const width = resolution[0] - moved.x;
+  const height = resolution[1] - moved.y;
+  if (width <= 0 || height <= 0) return moved;
+  await run(`xdotool windowsize "$win" ${width} ${height}`);
+  await desktop.wait(250).catch(() => undefined);
+  return measureBrowserWindowWithXdotool(desktop, windowId, requestTimeoutMs).catch(() => undefined);
+}
+
 /** Shared hosted-browser geometry capture used by per-lane and sequential shared-world routes. */
 export async function captureDesktopBrowserGeometry(args: {
   desktop: E2BDesktopSandbox;
@@ -2031,6 +2065,8 @@ export async function captureDesktopBrowserGeometry(args: {
   requestTimeoutMs: number;
   resize?: boolean;
 }): Promise<{
+  /** Known physical clipping (or unverified repair of it); startup must stop before actions. */
+  unusable?: string;
   browserWindowId?: string;
   browserTargetId?: string;
   browserWindow?: RunDesktopGeometry["browserWindow"];
@@ -2064,6 +2100,28 @@ export async function captureDesktopBrowserGeometry(args: {
     warnings.push(`Browser window bounds could not be measured for lane ${args.laneId}; the live stream will use the full desktop.`);
   }
 
+  let unusable: string | undefined;
+  if (xdotoolWindow !== undefined && !isBrowserWindowContained(xdotoolWindow, args.requestedScreen)) {
+    const before = xdotoolWindow;
+    if (args.resize !== false && browserWindowId !== undefined) {
+      xdotoolWindow = await fitBrowserWindowWithinDesktop(args.desktop, browserWindowId, args.requestedScreen, args.requestTimeoutMs);
+      if (xdotoolWindow === undefined) {
+        // Keep the last measured bad state; a missing observation cannot prove a successful fix.
+        xdotoolWindow = before;
+        unusable = `Physical browser containment could not be verified after correction for lane ${args.laneId}; the last measured window was clipped.`;
+      } else if (isBrowserWindowContained(xdotoolWindow, args.requestedScreen)) {
+        warnings.push(`Browser window clipping corrected for lane ${args.laneId}; physical bounds are ${xdotoolWindow.width}x${xdotoolWindow.height} at (${xdotoolWindow.x}, ${xdotoolWindow.y}).`);
+      }
+    }
+    if (unusable === undefined && !isBrowserWindowContained(xdotoolWindow, args.requestedScreen)) {
+      unusable = `Browser window is outside the captured ${args.requestedScreen[0]}x${args.requestedScreen[1]} desktop for lane ${args.laneId}: physical bounds ${xdotoolWindow.width}x${xdotoolWindow.height} at (${xdotoolWindow.x}, ${xdotoolWindow.y}), right=${xdotoolWindow.x + xdotoolWindow.width}, bottom=${xdotoolWindow.y + xdotoolWindow.height}.`;
+    }
+    if (unusable !== undefined) warnings.push(unusable);
+  }
+  if (xdotoolWindow === undefined) {
+    warnings.push(`Physical browser containment is unverified for lane ${args.laneId}; X window bounds could not be measured. Page-reported outer dimensions can be emulated and do not prove physical visibility.`);
+  }
+
   let cdpUnavailable: string | undefined;
   const chromeGeometry = args.browserFamily === "chromium"
     ? await makeChromeDesktopGeometryObserver(
@@ -2083,15 +2141,15 @@ export async function captureDesktopBrowserGeometry(args: {
         return undefined;
       })
     : undefined;
-  const browserWindow = chromeGeometry?.browserWindow ?? xdotoolWindow;
+  const browserWindow = xdotoolWindow ?? chromeGeometry?.browserWindow;
   const viewport = chromeGeometry?.viewport;
   // The fill check reads the X window when it was measured: under mobile emulation (#221) the
   // page's window.outerWidth reports the EMULATED screen (414), which is not a fill failure.
-  const fillBounds = xdotoolWindow ?? browserWindow;
+  const fillBounds = xdotoolWindow;
   if (!browserWindow) {
     warnings.push(`Browser outer bounds could not be measured for lane ${args.laneId}.`);
-  } else if (fillBounds !== undefined && (fillBounds.width !== args.requestedScreen[0] || fillBounds.height !== args.requestedScreen[1])) {
-    warnings.push(`Browser window fill did not reach the requested ${args.requestedScreen[0]}x${args.requestedScreen[1]} screen for lane ${args.laneId}; measured outer bounds are ${fillBounds.width}x${fillBounds.height}.`);
+  } else if (unusable === undefined && fillBounds !== undefined && (fillBounds.x !== 0 || fillBounds.y !== 0 || fillBounds.width !== args.requestedScreen[0] || fillBounds.height !== args.requestedScreen[1])) {
+    warnings.push(`Browser window fill did not reach the requested ${args.requestedScreen[0]}x${args.requestedScreen[1]} screen for lane ${args.laneId}; measured physical bounds are ${fillBounds.width}x${fillBounds.height} at (${fillBounds.x}, ${fillBounds.y}).`);
   }
   if (!viewport) {
     // Name the cause, not only the symptom: the same dead DevTools channel that loses the viewport
@@ -2102,6 +2160,7 @@ export async function captureDesktopBrowserGeometry(args: {
       : `Browser CSS viewport could not be measured for lane ${args.laneId}; stream.viewport is omitted instead of copying the requested screen resolution.${cause}`);
   }
   return {
+    ...(unusable === undefined ? {} : { unusable }),
     ...(browserWindowId === undefined ? {} : { browserWindowId }),
     ...(chromeGeometry?.targetId === undefined ? {} : { browserTargetId: chromeGeometry.targetId }),
     ...(browserWindow === undefined ? {} : { browserWindow }),
@@ -2934,6 +2993,14 @@ export async function runCuaLane(spec: CuaLaneSpec, deps: CuaLaneDeps): Promise<
         warnings.push(`Live desktop stream unavailable (run continues; evidence still captured): ${redactText(deps.scrubKnownValues(toErrorMessage(error)))}`);
       }
 
+      // This is outside the stream's best-effort catch: unusable geometry is a harness failure,
+      // never a participant finding about missing controls. Both per-lane and concurrent seats
+      // use this route; sequential seats enforce the same capture result in shared-world-lab.
+      if (initialBrowserGeometry?.unusable !== undefined) {
+        failureCode = "HUMANISH_CUA_LAB_DEVICE_GEOMETRY";
+        throw new Error(`${failureCode}: ${initialBrowserGeometry.unusable} Participant actions were not started.`);
+      }
+
       // The FAIL-CLOSED spend cap (execution.caps.maxUsd) is wired into the loop as maxUsd + an
       // injected pure per-turn estimator keyed on the resolved model. Preflight already refused a
       // cap on an unpriced model, so the estimate is measurable whenever a cap is in force. The
@@ -3088,7 +3155,7 @@ export async function runCuaLane(spec: CuaLaneSpec, deps: CuaLaneDeps): Promise<
         const chosenGeometry = finalGeometry.browserWindow !== undefined || finalGeometry.viewport !== undefined
           ? finalGeometry
           : initialBrowserGeometry ?? finalGeometry;
-        const geometryWarnings = [...new Set(chosenGeometry.warnings.map((warning) => deps.scrubKnownValues(warning)))];
+        const geometryWarnings = [...new Set([...(initialBrowserGeometry?.warnings ?? []), ...chosenGeometry.warnings].map((warning) => deps.scrubKnownValues(warning)))];
         warnings.push(...geometryWarnings);
         // The emulation holder's own log, after its announce line: which later targets it
         // attached to, what it sent, and any reply that came back as an error (#623). Read while

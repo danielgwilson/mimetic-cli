@@ -1100,6 +1100,32 @@ describe("runCuaActorLab", () => {
     expect(killed).toEqual(["fake-sandbox-001"]);
   });
 
+  it("stops a clipped browser before the participant session and still reclaims the desktop", async () => {
+    const sandbox = makeFakeSandbox({ commandHandler: (command) => {
+      if (command.includes("xdpyinfo")) return { exitCode: 0, stdout: "dimensions: 1280x800 pixels\n" };
+      if (command.includes("find_chrome_window")) return { exitCode: 0, stdout: "WINDOW_ID=7340035\n" };
+      if (command.includes("getwindowgeometry")) return { exitCode: 0, stdout: "X=0\nY=32\nWIDTH=1280\nHEIGHT=800\n" };
+      if (command.includes("browser_preference='default'")) return { exitCode: 0, stdout: "HUMANISH_BROWSER_RESOLVED=google-chrome\n" };
+      return undefined;
+    } });
+    const { module, killed } = makeFakeModule(sandbox);
+    let participantSessions = 0;
+    const outcome = await runLab(cuaConfig(), { cwd, cuaHooks: {
+      env: { OPENAI_API_KEY: "test-openai-key", E2B_API_KEY: "test-e2b-key" },
+      loadDesktopModule: async () => module,
+      runSession: async () => { participantSessions++; throw new Error("participant must not start"); }
+    } });
+    if (outcome.backend !== "cua") throw new Error("wrong route");
+    expect(outcome.result.ok).toBe(false);
+    expect(outcome.result.error?.code).toBe("HUMANISH_CUA_LAB_DEVICE_GEOMETRY");
+    expect(outcome.result.error?.message).toContain("Participant actions were not started");
+    expect(participantSessions).toBe(0);
+    expect(killed).toEqual(["fake-sandbox-001"]);
+    const bundle = JSON.parse(await readFile(path.join(cwd, ".humanish", "runs", outcome.result.runId, "run.json"), "utf8"));
+    expect(bundle.streams[0].desktopGeometry.browserWindow).toMatchObject({ y: 32, height: 800, source: "xdotool" });
+    expect(bundle.streams[0].desktopGeometry.warnings.join(" ")).toContain("outside the captured");
+  });
+
   it("persists requested/verified screen, browser bounds, and a distinct measured CSS viewport", async () => {
     const sandbox = makeFakeSandbox({
       commandHandler: (command) => {
@@ -1152,7 +1178,7 @@ describe("runCuaActorLab", () => {
         requested: { width: 1280, height: 800 },
         verified: { width: 1280, height: 800, source: "xdpyinfo" }
       },
-      browserWindow: { x: 0, y: 0, width: 1280, height: 800, source: "cdp" },
+      browserWindow: { x: 0, y: 0, width: 1280, height: 800, source: "xdotool" },
       viewport: { width: 1280, height: 661, deviceScaleFactor: 1, source: "cdp" }
     });
     expect(bundle.streams[0].viewport).toEqual({

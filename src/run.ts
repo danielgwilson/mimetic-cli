@@ -374,7 +374,8 @@ export interface RunDesktopGeometry {
      */
     declared?: { width: number; height: number; preset: string };
   };
-  /** Browser outer-window bounds measured after the fill attempt. */
+  /** Measured browser bounds after the fill attempt. X client bounds take precedence for
+   * physical visibility; CDP page-reported outer bounds can reflect mobile emulation. */
   browserWindow?: {
     x: number;
     y: number;

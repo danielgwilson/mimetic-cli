@@ -1429,18 +1429,22 @@ export async function runComputerUseLoop(options: CuaLoopOptions): Promise<CuaLo
       consecutiveNoProgress = progressed ? 0 : consecutiveNoProgress + 1;
       if (!progressed) bump("noProgressTurns");
 
-      // Recovery nudge before the backstop trips: tell the model it is stuck.
+      // An unchanged screen can be legitimate waiting (for example, a shared-world lobby).
+      // Recovery may suggest another approach, but must not instruct early abandonment while
+      // the task still calls for waiting. The counters, time and spend guards own hard stops.
       const contextHints: string[] = [];
       if (consecutiveNoProgress >= noProgressRecoverySteps && consecutiveNoProgress < noProgressSteps) {
         contextHints.push(
           `No visible progress for ${consecutiveNoProgress} step(s). ` +
-          "Try a different visible control, scroll within a panel, or stop with a final summary."
+          "If your task calls for waiting for another participant or a pending transition, you may continue waiting. " +
+          "Otherwise, try a different visible control or scroll within a panel; describe any blocker you actually encounter."
         );
       }
       if (consecutiveIdle >= idleRecoverySteps && consecutiveIdle < idleSteps) {
         contextHints.push(
           `You are only waiting or taking screenshots for ${consecutiveIdle} step(s). ` +
-          "If visible controls are actionable, choose one; otherwise stop with a blocker summary."
+          "If your task calls for waiting, you may continue within the remaining session time. " +
+          "When the relevant controls become actionable, continue your task; describe any blocker you actually encounter."
         );
       }
       if (contextHints.length > 0) contextHint = contextHints.join(" ");

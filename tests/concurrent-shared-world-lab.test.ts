@@ -90,7 +90,7 @@ function makeFakeSandbox(id: string, commandHandler: (command: string) => { stdo
   return sandbox as unknown as FakeSandbox;
 }
 
-function makeFakeModule(commandHandler: (command: string) => { stdout?: string } | undefined): {
+function makeFakeModule(commandHandler: (command: string) => { stdout?: string } | undefined, fitToResolution = true): {
   module: E2BDesktopModule;
   created: E2BDesktopCreateOptions[];
   templates: (string | undefined)[];
@@ -111,7 +111,13 @@ function makeFakeModule(commandHandler: (command: string) => { stdout?: string }
         const template = typeof templateOrOptions === "string" ? templateOrOptions : undefined;
         const createOptions = typeof templateOrOptions === "string" ? maybeOptions! : templateOrOptions;
         n += 1;
-        const sandbox = makeFakeSandbox(`fake-sandbox-${String(n).padStart(3, "0")}`, commandHandler);
+        const [width, height] = createOptions.resolution ?? [1440, 950];
+        const sandbox = makeFakeSandbox(`fake-sandbox-${String(n).padStart(3, "0")}`, (command) => {
+          // A phone seat has its own physical display, including in the committed live fixture.
+          if (fitToResolution && command.includes("xdpyinfo")) return { stdout: `dimensions: ${width}x${height} pixels\n` };
+          if (fitToResolution && command.includes("getwindowgeometry")) return { stdout: `X=0\nY=0\nWIDTH=${width}\nHEIGHT=${height}\n` };
+          return commandHandler(command);
+        });
         templates.push(template);
         created.push(createOptions);
         sandboxes.push(sandbox);
@@ -428,7 +434,7 @@ describe("runConcurrentSharedWorld (the heart: real orchestration + rendezvous l
           requested: FAKE_DESKTOP_SCREEN,
           verified: { ...FAKE_DESKTOP_SCREEN, source: "xdpyinfo" }
         },
-        browserWindow: { x: 0, y: 0, ...FAKE_DESKTOP_SCREEN, source: "cdp" },
+        browserWindow: { x: 0, y: 0, ...FAKE_DESKTOP_SCREEN, source: "xdotool" },
         viewport: { ...FAKE_DESKTOP_VIEWPORT, source: "cdp" }
       });
       expect(stream.viewport).toEqual({ ...FAKE_DESKTOP_VIEWPORT, isMobile: false });
@@ -1198,6 +1204,29 @@ describe("verifyRun fails closed on each injected concurrent overclaim", () => {
 // committed humanish/labs/shared-world-concurrent-live.yaml parses, routes to the concurrent
 // backend, passes the synthetic/seeded/0.0.0.0 validations, dry-runs to a verified bundle, AND
 // drives the REAL orchestrator on the fake N+1 substrate at $0.
+describe("concurrent physical geometry guard", () => {
+  it("starts no participant on clipped seats and reclaims the host plus every actor desktop", async () => {
+    const state = { worldVersion: 0 };
+    const { hooks } = baseHooks(state, async () => undefined);
+    const handler = makeCommandHandler(state);
+    const { module, sandboxes, killed } = makeFakeModule((command) => command.includes("getwindowgeometry")
+      ? { stdout: "X=0\nY=32\nWIDTH=1440\nHEIGHT=950\n" }
+      : handler(command), false);
+    let participantSessions = 0;
+    hooks.loadDesktopModule = async () => module;
+    hooks.runSession = async () => { participantSessions++; throw new Error("participant must not start"); };
+    const result = await runConcurrentSharedWorld({ cwd, config: concurrentConfig(2, 2), dryRun: false, hooks });
+    expect(result.ok).toBe(false);
+    expect(participantSessions).toBe(0);
+    expect(sandboxes).toHaveLength(3);
+    expect(killed.sort()).toEqual(sandboxes.map((sandbox) => sandbox.sandboxId).sort());
+    const bundle = JSON.parse(await readFile(path.join(cwd, ".humanish", "runs", result.runId, "run.json"), "utf8"));
+    for (const stream of bundle.streams) {
+      expect(stream.desktopGeometry.warnings.join(" ")).toContain("outside the captured");
+    }
+  });
+});
+
 describe("committed live-fixture lab (deterministic $0 wiring proof)", () => {
   function loadLiveLab(): LabConfig {
     const raw = parse(readFileSync(path.join(process.cwd(), "humanish/labs/shared-world-concurrent-live.yaml"), "utf8"));

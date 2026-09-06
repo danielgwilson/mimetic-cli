@@ -96,9 +96,18 @@ different facts separate:
   `verified` block is NOT evidence that the preset width rendered. When `declared` is present,
   it did not: a `mobile` (414) and a `small-mobile` (360) seat both render at 500 and are
   indistinguishable by rendered width;
-- `browserWindow`: outer browser bounds measured after the window-fill attempt;
+- `browserWindow`: measured browser bounds after the window-fill attempt; physical X client
+  bounds (`source: xdotool`) take precedence over page-reported outer bounds (`source: cdp`),
+  which can reflect mobile emulation;
 - `viewport`: the page's CSS layout viewport and device-pixel ratio measured through CDP on
   Chromium-family hosted browsers.
+
+Before participant actions, hosted computer-use lanes check measured X bounds against every
+edge of the captured desktop. If a browser is clipped, one bounded move-and-fit correction
+accounts for the window manager's client origin. A window that remains clipped, or whose repair
+cannot be verified, ends the lane before participant actions. A fully contained smaller window
+can run. Missing X measurements are explicitly unverified; an emulated CSS viewport cannot
+establish physical containment. Final capture observes geometry without resizing the app.
 
 For new hosted-desktop computer-use bundles, `stream.viewport` mirrors the measured
 `desktopGeometry.viewport`; it is omitted when runtime measurement is unavailable. It is never
