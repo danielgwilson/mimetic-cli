@@ -471,6 +471,21 @@ Stop and correct course if:
 
 ## Best Next Work
 
+**2026-09-06 (0.83.1).** Desktop CLI studies without a declared product install
+now prepare Node/npm before participant entry, while leaving the product
+uninstalled. Two real stock desktops began without the runtime and reached the
+entry hook with Node/npm/npx available in ordinary and sudo shells. The hook
+then stopped deliberately without starting a participant or model. See the
+[runtime conformance receipt](https://github.com/danielgwilson/humanish/blob/main/docs/goals/computer-use-actor/receipts/desktop-cli-runtime-2026-09-06.md).
+
+Terminal startup failures preserve confirmed cleanup from the desktop startup
+guard. An existing empty terminal event log is valid only when both embedded
+and retained terminal traces declare zero events. Unknown cleanup stays
+unproven, and a failed startup remains a failed run. The compiled CLI regression
+checks verified failure evidence and natural process exit using the installed
+SDK's debug constructor with network access blocked. See the
+[startup evidence receipt](https://github.com/danielgwilson/humanish/blob/main/docs/goals/computer-use-actor/receipts/terminal-startup-evidence-2026-09-06.md).
+
 **2026-09-06 (0.83.0).** First-party OpenAI computer-use actors accept
 an optional per-response `maxOutputTokens` setting. Two independent lanes and two
 sequential shared-world roles forwarded the declared limit in real requests; all
