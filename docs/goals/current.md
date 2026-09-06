@@ -1,6 +1,6 @@
 # Current Goals
 
-Status date: 2026-08-11 (rev 18)
+Status date: 2026-09-06 (rev 19)
 
 This page is the current public-safe operating goal for `humanish`. Keep it
 short enough to reread before a coding session and concrete enough that future
@@ -29,7 +29,7 @@ study completed, reproduced, and produced a real accessibility finding via a
 keyboard-first participant
 ([docs/goals/email-gated-signup/receipts/](email-gated-signup/receipts/)).
 
-## Current Program Truth (source `0.82.1`)
+## Current Program Truth (source `0.83.0`)
 
 The package source and repository implementation in this tree agree on these
 points:
@@ -471,7 +471,7 @@ Stop and correct course if:
 
 ## Best Next Work
 
-**2026-09-06 (source; not npm 0.82.1).** First-party OpenAI computer-use actors accept
+**2026-09-06 (0.83.0).** First-party OpenAI computer-use actors accept
 an optional per-response `maxOutputTokens` setting. Two independent lanes and two
 sequential shared-world roles forwarded the declared limit in real requests; all
 four preserved provider truncation as incomplete, with zero actions or closing
@@ -479,6 +479,18 @@ requests. The same scoped integration confirmed sequential actor-level reasoning
 effort and a lane override on the request and trace. This proves configuration
 propagation, not participant success or persona efficacy. See the
 [four-role live receipt](computer-use-actor/receipts/output-token-limit-2026-09-06.md).
+
+Hosted browser setup checks physical X window bounds before participant actions.
+A clipped window gets one correction and a measured readback; a window that
+remains clipped stops the lane. Two hosted fault-injection probes restored a
+bottom-edge button and clicked it successfully. This checks desktop containment,
+not mobile gesture fidelity. See the [desktop geometry receipt](computer-use-actor/receipts/desktop-geometry-2026-09-06.md).
+
+Recovery hints now allow task-directed waiting and suggest recovery without
+asking a participant to abandon early. Deterministic delayed-start tests cover
+the prompt change and unchanged hard idle limits; live multiplayer patience
+has not been measured. Lane and roster-group objects reject unknown fields
+before allocation, so misspelled controls cannot silently become defaults.
 
 **2026-09-05 (0.82.1).** Computer-use actors now preserve a provider output-limit
 interruption as incomplete instead of treating a response without actions as
