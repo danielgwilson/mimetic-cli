@@ -483,7 +483,9 @@ guard. An existing empty terminal event log is valid only when both embedded
 and retained terminal traces declare zero events. Unknown cleanup stays
 unproven, and a failed startup remains a failed run. The compiled CLI regression
 checks verified failure evidence and natural process exit using the installed
-SDK's debug constructor with network access blocked. See the
+SDK's debug constructor with network access blocked. Two hosted startup-fault
+controls also verified failed bundles, prompt natural exit and exact sandbox
+absence with real provider transports. See the
 [startup evidence receipt](https://github.com/danielgwilson/humanish/blob/main/docs/goals/computer-use-actor/receipts/terminal-startup-evidence-2026-09-06.md).
 
 **2026-09-06 (0.83.0).** First-party OpenAI computer-use actors accept
@@ -661,9 +663,10 @@ are available; the documentation gap from #513 is closed.
 Remaining engineering work includes:
 
 - #581: #665 already reclaims acquired desktop instances when startup fails,
-  and #666 handles detached screenshot cleanup errors. Remaining boundaries are
-  allocation ambiguity before instance acquisition, unconfirmed reclamation,
-  and direct proof that a failed real-SDK CLI exits promptly after its result.
+  and #666 handles detached screenshot cleanup errors. The compiled CLI now has
+  deterministic exit proof and two hosted startup-fault receipts. Remaining
+  boundaries are allocation ambiguity before instance acquisition, unconfirmed
+  reclamation, and exit behavior after other provider/network failures.
   The 2.3.3 SDK update fixed the identified background stream holder; older
   optional peers still receive an advisory, so a universal no-linger claim
   would be too broad.
