@@ -536,6 +536,7 @@ describe("runSharedWorldLab (the heart: real orchestration vs fakes, $0)", () =>
     expect(firstSeatCommand).toContain("--disable-extensions");
     expect(firstSeatCommand).toContain("--password-store=basic");
     expect(firstSeatCommand).toContain("credentials_enable_service");
+    expect(firstSeatCommand).toContain('"custom_chrome_frame":false');
     expect(firstSeatCommand).toContain("\"password_manager_enabled\":false");
 
     // A checkpoint at baseline + after each turn → timeline = cp, turn, cp, turn, cp.
