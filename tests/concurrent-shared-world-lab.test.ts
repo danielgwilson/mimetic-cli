@@ -312,6 +312,32 @@ beforeEach(async () => { cwd = await mkdtemp(path.join(tmpdir(), "humanish-concu
 afterEach(async () => { await rm(cwd, { recursive: true, force: true }); });
 
 describe("runConcurrentSharedWorld (the heart: real orchestration + rendezvous latch, $0)", () => {
+  it("shares one actor budget on the provisioned plane", async () => {
+    const config = concurrentConfig();
+    config.actors[0]!.model = "gpt-5.5";
+    config.execution!.caps = { maxUsd: 1, maxTotalUsd: 0.04 };
+    const { hooks } = baseHooks({ worldVersion: 0 }, makeRendezvous(3));
+    const session = hooks.runSession!;
+    const seen: CuaActorSessionOptions[] = [];
+    hooks.runSession = (options) => { seen.push(options); return session(options); };
+    await runConcurrentSharedWorld({ cwd, config, dryRun: false, hooks });
+    expect(seen).toHaveLength(3);
+    const usage = { input: 5000, output: 0 };
+    expect(seen[0]!.overRunBudget?.(usage)).toBeNull();
+    expect(seen[1]!.overRunBudget?.(usage)).toContain("study budget reached");
+    expect(seen[0]!.overRunBudget?.(usage)).toContain("study budget reached");
+  });
+
+  it("refuses an unpriceable cap before provisioning the shared plane", async () => {
+    const config = concurrentConfig();
+    config.actors[0]!.model = "unknown-priced-model";
+    config.execution!.caps = { maxTotalUsd: 1 };
+    const { hooks, created } = baseHooks({ worldVersion: 0 }, makeRendezvous(3));
+    const result = await runConcurrentSharedWorld({ cwd, config, dryRun: false, hooks });
+    expect(result.error?.message).toContain("unpriced model");
+    expect(created).toHaveLength(0);
+  });
+
   it("refuses a custom session before allocating the concurrent shared plane with an output limit", async () => {
     const config = concurrentConfig();
     config.actors[0]!.maxOutputTokens = 16;

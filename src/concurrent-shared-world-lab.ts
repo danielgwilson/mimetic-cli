@@ -43,6 +43,8 @@ import {
   adapterScoreFailureMessage,
   applyBrowserAdapterHooks
 } from "./adapter-extension.js";
+import { DEFAULT_OPENAI_CU_MODEL } from "./openai-responses-cu.js";
+import { MODEL_RATES } from "./pricing.js";
 import { actorRegistry, isCuaActorDescriptor, type CuaActorDescriptor } from "./actor-registry.js";
 import { toErrorMessage } from "./command-failure.js";
 import { mapWithConcurrency } from "./concurrency.js";
@@ -61,6 +63,7 @@ import {
   resolveLaneDevice,
   resolveSubjectState,
   runCuaLane,
+  makeCuaRunBudget,
   withInboxMission,
   type CuaActorLabHooks,
   type CuaLaneDeps,
@@ -622,13 +625,12 @@ function withLobbyCodeMission(spec: CuaLaneSpec, code: string): CuaLaneSpec {
   };
 }
 
-/** A follower lane that failed closed at the host-first barrier (the host never yielded a /lobby/CODE
- *  within the deadline): it NEVER opened a browser, so it carries no session/screenshots — just the
- *  handoff-timeout reason. actorLanePassed(...) is false (no session), so it is honestly non-pass. */
-function makeBlockedFollowerOutcome(spec: CuaLaneSpec, deadlineMs: number): LaneRunOutcome {
+/** A follower blocked by an expired deadline or an ended host. It never opened a browser;
+ * keep the actual reason rather than turning every upstream failure into a timeout. */
+function makeBlockedFollowerOutcome(spec: CuaLaneSpec, reason: string, timedOut: boolean): LaneRunOutcome {
   return {
     spec,
-    sessionError: `handoff barrier: the host never surfaced a /lobby/CODE URL within ${deadlineMs}ms; this follower failed closed WITHOUT opening (no wasted turns).`,
+    sessionError: `handoff barrier: ${reason}; this follower failed closed WITHOUT opening (no wasted turns).`,
     killed: false,
     streamUrlPresent: false,
     screenshots: [],
@@ -638,7 +640,7 @@ function makeBlockedFollowerOutcome(spec: CuaLaneSpec, deadlineMs: number): Lane
     noEngagement: true,
     selfReportedBlocker: false,
     harnessError: false,
-    skippedReason: "handoff-timeout"
+    skippedReason: timedOut ? "handoff-timeout" : "host-ended-before-handoff"
   };
 }
 
@@ -761,6 +763,15 @@ async function runConcurrentSharedWorldInScope(options: RunConcurrentSharedWorld
   if (config.actors[0]?.maxOutputTokens !== undefined && hooks.runSession) {
     return fail("HUMANISH_CONCURRENT_SHARED_WORLD_LAB_INVALID", "maxOutputTokens cannot be enforced by a custom runSession.", descriptor.id);
   }
+
+  const caps = config.execution?.caps;
+  if (!dryRun && (caps?.maxUsd !== undefined || caps?.maxTotalUsd !== undefined)) {
+    const model = (config.actors[0]?.model ?? DEFAULT_OPENAI_CU_MODEL).trim().toLowerCase();
+    if (!MODEL_RATES[model]) {
+      return fail("HUMANISH_CONCURRENT_SHARED_WORLD_LAB_INVALID", `The declared spend cap cannot be enforced for unpriced model "${model}".`, descriptor.id);
+    }
+  }
+  const runBudget = !dryRun && caps?.maxTotalUsd !== undefined ? makeCuaRunBudget(caps.maxTotalUsd) : undefined;
 
   // provisioned-getHost fields (all absent on the external-public plane — forbidden at validation).
   const serve = config.subject.serve;
@@ -908,6 +919,7 @@ async function runConcurrentSharedWorldInScope(options: RunConcurrentSharedWorld
   const observedLobbyCodes: (string | undefined)[] = new Array(roles.length);
   let lobbyConvergenceDigest: string | undefined;
   let handoffTimedOut = false;
+  let hostHandoffFailure: string | undefined;
   // A closure that scrubs the latched lobby CODE from ANY persisted narration once the host resolves
   // it (the 6-char code has no detectable secret shape, so shape-only redaction cannot catch it).
   let latchedLobbyCode: string | undefined;
@@ -1219,6 +1231,7 @@ async function runConcurrentSharedWorldInScope(options: RunConcurrentSharedWorld
         runSession,
         now,
         hooks: cuaHooks,
+        ...(runBudget === undefined ? {} : { runBudget }),
         // Concurrent lanes are independent evidence seats: a requested-vs-verified screen
         // mismatch is recorded as separate facts + a warning instead of failing the lane's
         // device claim closed, so one seat's window-manager drift cannot abort the whole
@@ -1355,6 +1368,7 @@ async function runConcurrentSharedWorldInScope(options: RunConcurrentSharedWorld
       runSession,
       now,
       hooks: cuaHooks,
+      ...(runBudget === undefined ? {} : { runBudget }),
       screenMismatchPolicy: "record-evidence"
     };
 
@@ -1495,13 +1509,17 @@ async function runConcurrentSharedWorldInScope(options: RunConcurrentSharedWorld
         noProgressSteps: spec.noProgressSteps ?? HOST_WAIT_IDLE_STEPS
       };
       const startedAt = now();
-      let outcome: LaneRunOutcome;
+      let outcome: LaneRunOutcome | undefined;
       try {
         outcome = await runCuaLane(hostSpec, { ...baseActorDeps, appUrl: publicAppUrl, onObservedUrl, onMessage, onScreenshot });
       } finally {
         // If the host finished without ever surfacing a code, release followers to fail closed
         // immediately rather than wait the full deadline (a no-op if it already resolved).
-        lobbyCodeLatch.reject(new HandoffTimeoutError(handoffDeadlineMs));
+        if (!lobbyCodeLatch.settled()) {
+          const reason = outcome?.sessionError ?? outcome?.session?.reason ?? "no terminal host outcome was recorded";
+          hostHandoffFailure = scrubKnownValuesWithLobbyCode(`Host seat ended before producing a lobby URL: ${reason}`);
+          lobbyCodeLatch.reject(new Error(hostHandoffFailure));
+        }
       }
       const endedAt = now();
       return { spec, outcome, startedAt, endedAt, route: observedFinalUrls[laneIndex] ?? publicAppUrl };
@@ -1512,11 +1530,13 @@ async function runConcurrentSharedWorldInScope(options: RunConcurrentSharedWorld
       let code: string;
       try {
         code = await Promise.race([lobbyCodeLatch.promise, deadline]);
-      } catch {
-        // Fail closed WITHOUT opening (no wasted turns against a codeless home page).
-        handoffTimedOut = true;
+      } catch (error) {
+        // An ended host is not a deadline expiry. Preserve its actual failure.
+        const timedOut = error instanceof HandoffTimeoutError;
+        handoffTimedOut ||= timedOut;
+        const reason = scrubKnownValuesWithLobbyCode(toErrorMessage(error));
         const at = now();
-        return { spec, outcome: makeBlockedFollowerOutcome(spec, handoffDeadlineMs), startedAt: at, endedAt: at, route: publicAppUrl };
+        return { spec, outcome: makeBlockedFollowerOutcome(spec, reason, timedOut), startedAt: at, endedAt: at, route: publicAppUrl };
       }
       // Followers also idle-wait — in the waiting room until the host starts, and between rounds. Raise
       // their idle backstop too (less than the host's: they wait less), so a follower that joins ahead of
@@ -1789,6 +1809,9 @@ async function runConcurrentSharedWorldInScope(options: RunConcurrentSharedWorld
       // itself make the Observer unable to render a coherent run. Report the distinct, honest
       // handoff-timeout code rather than a generic observer/run failure.
       return { code: "HUMANISH_CONCURRENT_SHARED_WORLD_LAB_HANDOFF_TIMEOUT", message: runError ?? "The host seat never produced a /lobby/CODE URL within the handoff deadline." };
+    }
+    if (hostHandoffFailure !== undefined) {
+      return { code: "HUMANISH_CONCURRENT_SHARED_WORLD_LAB_FAILED", message: hostHandoffFailure };
     }
     if (!observer.ok) {
       return { code: "HUMANISH_CONCURRENT_SHARED_WORLD_LAB_FAILED", message: observer.error?.message ?? "Observer failed for the concurrent shared-world run." };
