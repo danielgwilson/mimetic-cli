@@ -604,6 +604,9 @@ function buildActorSpec(
     streamId,
     persona: composed.persona,
     instructions: composed.instructions,
+    ...((role.reasoningEffort ?? config.actors[0]?.reasoningEffort) === undefined
+      ? {} : { reasoningEffort: (role.reasoningEffort ?? config.actors[0]?.reasoningEffort)! }),
+    ...(config.actors[0]?.maxOutputTokens === undefined ? {} : { maxOutputTokens: config.actors[0].maxOutputTokens }),
     ...((role.stopWhen ?? config.actors[0]?.stopWhen) === undefined ? {} : { stopWhen: (role.stopWhen ?? config.actors[0]?.stopWhen)! }),
     ...((role.dwell ?? config.actors[0]?.dwell) === undefined ? {} : { dwell: (role.dwell ?? config.actors[0]?.dwell)! }),
     deviceName: device.name,

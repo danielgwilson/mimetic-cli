@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { parse } from "yaml";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { PNG } from "pngjs";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ACTOR_TRACE_SCHEMA, type ActorCompletionReason, type ActorStatus, type ActorTrace } from "../src/actor-contract.js";
 import type { CuaActorSessionOptions } from "../src/computer-use-actor.js";
@@ -1399,4 +1400,32 @@ describe("lobby-code handoff relays (CDP-independent: narration + vision-off-fra
     expect(await readLobbyCodeFromFrame(Buffer.alloc(0), "sk-test", { fetchFn: spy })).toBeUndefined();
     expect(called).toBe(false);
   });
+});
+
+// Exercise the actual first-party provider route: a custom runSession would bypass the
+// output-limit contract. The response is a retained wire fixture; no network or paid compute.
+it("routes actor output limits and per-lane reasoning to concurrent provider requests", async () => {
+  const config = concurrentConfig();
+  config.actors[0]!.maxOutputTokens = 8192;
+  config.actors[0]!.reasoningEffort = "low";
+  config.actors[0]!.lanes![1]!.reasoningEffort = "high";
+  const { hooks } = baseHooks({ worldVersion: 0 }, makeRendezvous(3));
+  delete hooks.runSession;
+  hooks.prepareDesktop = async desktop => {
+    desktop.screenshot = async () => new Uint8Array(PNG.sync.write(new PNG({ width: 4, height: 4 })));
+  };
+  hooks.readLobbyCodeFromFrame = async () => "AB2CD9";
+  const captured = JSON.parse(readFileSync(new URL("./fixtures/openai-closing-report/typed-closing-report.json", import.meta.url), "utf8"));
+  const bodies: Array<{ max_output_tokens?: number; reasoning?: { effort?: string } }> = [];
+  vi.stubGlobal("fetch", async (_url: unknown, init: { body: string }) => {
+    bodies.push(JSON.parse(init.body));
+    return { ok: true, status: 200, json: async () => captured, text: async () => JSON.stringify(captured) };
+  });
+  try {
+    const result = await runConcurrentSharedWorld({ cwd, config, dryRun: false, hooks });
+    expect(bodies).toHaveLength(3);
+    expect(bodies.map(body => body.max_output_tokens)).toEqual([8192, 8192, 8192]);
+    expect(bodies.map(body => body.reasoning?.effort).sort()).toEqual(["high", "low", "low"]);
+    expect(result.roles).toHaveLength(3);
+  } finally { vi.unstubAllGlobals(); }
 });

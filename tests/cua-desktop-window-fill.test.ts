@@ -88,6 +88,13 @@ describe("physical browser containment", () => {
     expect((await capture(desktop)).unusable).toContain("could not be verified after correction");
   });
 
+  it("waits for the fullscreen width after its origin has already moved", async () => {
+    const clipped = { ...full, y: 32 };
+    const { desktop, commands } = geometryDesktop([clipped, clipped, clipped, { ...full, width: 1288 }, full]);
+    expect((await capture(desktop)).unusable).toBeUndefined();
+    expect(commands.filter((command) => command.includes('key --clearmodifiers F11'))).toHaveLength(1);
+  });
+
   it.each([
     ["positive y with bottom overflow", { ...full, y: 32 }],
     ["positive x with right overflow", { ...full, x: 16 }],

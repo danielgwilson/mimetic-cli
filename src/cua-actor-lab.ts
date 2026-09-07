@@ -2068,8 +2068,15 @@ async function fitBrowserWindowWithinDesktop(
     '  *) xdotool windowactivate --sync "$win"; xdotool key --clearmodifiers F11 ;;',
     'esac'
   ].join("\n"));
-  await desktop.wait(250).catch(() => undefined);
-  return measureBrowserWindowWithXdotool(desktop, windowId, requestTimeoutMs).catch(() => undefined);
+  // The fullscreen animation may report its new origin before its final width.
+  // Give the window manager a bounded settling window, keeping missing reads unverified.
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await desktop.wait(250).catch(() => undefined);
+    const measured = await measureBrowserWindowWithXdotool(desktop, windowId, requestTimeoutMs).catch(() => undefined);
+    if (measured === undefined || isBrowserWindowContained(measured, resolution)) return measured;
+    resized = measured;
+  }
+  return resized;
 }
 
 /** Shared hosted-browser geometry capture used by per-lane and sequential shared-world routes. */
