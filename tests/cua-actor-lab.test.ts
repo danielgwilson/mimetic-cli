@@ -2200,6 +2200,7 @@ describe("runCuaActorLab", () => {
     expect(openCommand).toContain("--disable-extensions");
     expect(openCommand).toContain("--password-store=basic");
     expect(openCommand).toContain("credentials_enable_service");
+    expect(openCommand).toContain('"custom_chrome_frame":false');
     expect(openCommand).toContain("\"password_manager_enabled\":false");
     expect(sandbox.calls.some((call) => call[0] === "open")).toBe(false);
     expect(sandbox.calls.some((call) => call[0] === "launch")).toBe(false);

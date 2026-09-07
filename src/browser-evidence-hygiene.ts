@@ -22,7 +22,10 @@ const CHROMIUM_EVIDENCE_PROFILE_PREFERENCES = {
     profile_enabled: false
   },
   browser: {
-    check_default_browser: false
+    check_default_browser: false,
+    // Linux CSD adds 8px to Chrome's minimum width. Use the window manager's
+    // frame so the 500px desktop floor can be physically contained.
+    custom_chrome_frame: false
   },
   credentials_enable_service: false,
   payments: {

@@ -1,6 +1,6 @@
 # Current Goals
 
-Status date: 2026-09-06 (rev 20)
+Status date: 2026-09-07 (rev 21)
 
 This page is the current public-safe operating goal for `humanish`. Keep it
 short enough to reread before a coding session and concrete enough that future
@@ -29,10 +29,12 @@ study completed, reproduced, and produced a real accessibility finding via a
 keyboard-first participant
 ([docs/goals/email-gated-signup/receipts/](email-gated-signup/receipts/)).
 
-## Current Program Truth (source `0.83.1`)
+## Current Program Truth (source `0.83.2`)
 
 The package source and repository implementation in this tree agree on these
 points:
+
+**Narrow desktop and shared-study correction, 2026-09-07.** A minimum-width Chrome window can remain outside a 500px desktop after move/resize. A state-checked fullscreen fallback now proves physical containment before participant entry. Concurrent shared-world actors share the declared model-study budget, and a host ending before lobby handoff retains its actual failure rather than being reported as a timeout. See [bounded desktop receipt](computer-use-actor/receipts/narrow-desktop-containment-2026-09-07.md). This does not establish physical mobile fidelity or external adoption.
 
 **Mobile input correction, 2026-09-05 (#676).** The historical 4/4 TodoMVC phone-lane rename
 failures describe the shipped desktop pointer-to-touch conversion path. In two new hosted

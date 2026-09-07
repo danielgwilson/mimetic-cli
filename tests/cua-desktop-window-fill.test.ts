@@ -66,6 +66,36 @@ function capture(desktop: E2BDesktopSandbox, resize = true) {
 
 describe("physical browser containment", () => {
   it.each([
+    { x: 10, y: 85, width: 500, height: 811 },
+    { x: -4, y: 27, width: 508, height: 869 }
+  ])("removes decorations when the minimum-width client cannot fit: %j", async (clipped) => {
+    // Physical shapes retained from the September 7 hosted desktop failures.
+    const contained = { x: 0, y: 0, width: 500, height: 896 };
+    const reads = clipped.x < 0 ? [clipped, clipped, contained] : [clipped, clipped, clipped, contained];
+    const { desktop, commands } = geometryDesktop(reads);
+    const result = await captureDesktopBrowserGeometry({
+      desktop, browserFamily: "chromium", browserWindowId: "123", laneId: "narrow-screen",
+      targetUrl: "http://127.0.0.1:8080/", requestedScreen: [500, 896], requestTimeoutMs: 1000
+    });
+    expect(result.unusable).toBeUndefined();
+    expect(result.browserWindow).toEqual({ ...contained, source: "xdotool" });
+    expect(commands.filter((command) => command.includes('key --clearmodifiers F11'))).toHaveLength(1);
+  });
+
+  it("keeps known clipping when the fullscreen read-back is missing", async () => {
+    const clipped = { ...full, y: 32 };
+    const { desktop } = geometryDesktop([clipped, clipped, clipped, undefined]);
+    expect((await capture(desktop)).unusable).toContain("could not be verified after correction");
+  });
+
+  it("waits for the fullscreen width after its origin has already moved", async () => {
+    const clipped = { ...full, y: 32 };
+    const { desktop, commands } = geometryDesktop([clipped, clipped, clipped, { ...full, width: 1288 }, full]);
+    expect((await capture(desktop)).unusable).toBeUndefined();
+    expect(commands.filter((command) => command.includes('key --clearmodifiers F11'))).toHaveLength(1);
+  });
+
+  it.each([
     ["positive y with bottom overflow", { ...full, y: 32 }],
     ["positive x with right overflow", { ...full, x: 16 }],
     ["negative x", { ...full, x: -1 }],

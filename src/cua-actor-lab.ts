@@ -2042,14 +2042,41 @@ async function fitBrowserWindowWithinDesktop(
   await run('xdotool windowmove "$win" 0 0');
   await desktop.wait(250).catch(() => undefined);
   const moved = await measureBrowserWindowWithXdotool(desktop, windowId, requestTimeoutMs).catch(() => undefined);
-  // A failed move cannot be repaired by resizing a window whose origin is offscreen.
-  if (moved === undefined || moved.x < 0 || moved.y < 0) return moved;
+  if (moved === undefined) return moved;
+  let resized = moved;
   const width = resolution[0] - moved.x;
   const height = resolution[1] - moved.y;
-  if (width <= 0 || height <= 0) return moved;
-  await run(`xdotool windowsize "$win" ${width} ${height}`);
-  await desktop.wait(250).catch(() => undefined);
-  return measureBrowserWindowWithXdotool(desktop, windowId, requestTimeoutMs).catch(() => undefined);
+  // Resizing alone cannot fix an offscreen client origin. The window manager
+  // can also center a minimum-width client at a negative x on a narrow screen.
+  if (moved.x >= 0 && moved.y >= 0 && width > 0 && height > 0) {
+    await run(`xdotool windowsize "$win" ${width} ${height}`);
+    await desktop.wait(250).catch(() => undefined);
+    const measured = await measureBrowserWindowWithXdotool(desktop, windowId, requestTimeoutMs).catch(() => undefined);
+    if (measured === undefined) return measured;
+    resized = measured;
+  }
+  if (resized === undefined || isBrowserWindowContained(resized, resolution)) return resized;
+  // Chrome's minimum client width can equal the whole desktop. Window-manager
+  // borders then make a decorated window impossible to contain, even after a
+  // successful move/resize. Request fullscreen once and prove the physical result.
+  // xprop/xdotool ship with the desktop template; wmctrl is not required.
+  // Check state first so the fullscreen shortcut cannot toggle an existing state off.
+  await run([
+    'state=$(xprop -id "$win" _NET_WM_STATE)',
+    'case "$state" in',
+    '  *_NET_WM_STATE_FULLSCREEN*) ;;',
+    '  *) xdotool windowactivate --sync "$win"; xdotool key --clearmodifiers F11 ;;',
+    'esac'
+  ].join("\n"));
+  // The fullscreen animation may report its new origin before its final width.
+  // Give the window manager a bounded settling window, keeping missing reads unverified.
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await desktop.wait(250).catch(() => undefined);
+    const measured = await measureBrowserWindowWithXdotool(desktop, windowId, requestTimeoutMs).catch(() => undefined);
+    if (measured === undefined || isBrowserWindowContained(measured, resolution)) return measured;
+    resized = measured;
+  }
+  return resized;
 }
 
 /** Shared hosted-browser geometry capture used by per-lane and sequential shared-world routes. */

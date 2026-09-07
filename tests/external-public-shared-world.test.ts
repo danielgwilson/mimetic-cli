@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { parse } from "yaml";
 import { PNG } from "pngjs";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ACTOR_TRACE_SCHEMA, type ActorCompletionReason, type ActorStatus, type ActorTrace } from "../src/actor-contract.js";
 import type { CuaActorSessionOptions } from "../src/computer-use-actor.js";
@@ -685,6 +685,43 @@ describe("review.summary is external-public plane-aware", () => {
 // 5. Handoff timeout fail-closed.
 // ---------------------------------------------------------------------------
 describe("handoff timeout fail-closed", () => {
+  it("shares the actor study budget across host and follower sessions", async () => {
+    const seen: CuaActorSessionOptions[] = [];
+    const config = parseExternal();
+    config.actors[0]!.model = "gpt-5.5";
+    config.execution!.caps = { maxUsd: 1, maxTotalUsd: 0.04 };
+    const { hooks } = makeExternalHooks(makeExternalRunSession({ seen }));
+    await runConcurrentSharedWorld({ cwd, config, dryRun: false, hooks });
+    expect(seen).toHaveLength(3);
+    const usage = { input: 5000, output: 0 };
+    expect(seen[0]!.overRunBudget?.(usage)).toBeNull();
+    expect(seen[1]!.overRunBudget?.(usage)).toContain("study budget reached");
+    // The host sees the sibling's spend without its own usage growing.
+    expect(seen[0]!.overRunBudget?.(usage)).toContain("study budget reached");
+  });
+
+  it("refuses an unpriceable spend cap before opening the host", async () => {
+    const config = parseExternal();
+    config.actors[0]!.model = "unknown-priced-model";
+    config.execution!.caps = { maxTotalUsd: 1 };
+    const { hooks, created } = makeExternalHooks(makeExternalRunSession({ seen: [] }));
+    const result = await runConcurrentSharedWorld({ cwd, config, dryRun: false, hooks });
+    expect(result.error?.message).toContain("unpriced model");
+    expect(created).toHaveLength(0);
+  });
+
+  it("preserves a host startup failure instead of claiming the handoff deadline expired", async () => {
+    const { hooks, created, killed } = makeExternalHooks(async () => { throw new Error("physical browser containment failed"); }, { handoffDeadlineMs: 5000 });
+    const result = await runConcurrentSharedWorld({ cwd, config: parseExternal(), dryRun: false, hooks });
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("HUMANISH_CONCURRENT_SHARED_WORLD_LAB_FAILED");
+    expect(result.error?.message).toContain("physical browser containment failed");
+    expect(result.error?.message).not.toContain("deadline");
+    expect(created).toHaveLength(1);
+    expect(killed).toHaveLength(1);
+    expect(result.roles.filter((role) => role.id !== "host").every((role) => role.error?.message.includes("physical browser containment failed"))).toBe(true);
+  });
+
   it("host never yields a /lobby/CODE -> followers do NOT open, run returns HANDOFF_TIMEOUT, host window recorded", async () => {
     const seen: CuaActorSessionOptions[] = [];
     const { hooks, created } = makeExternalHooks(
@@ -801,4 +838,32 @@ describe("lobby-trivia-3player committed lab", () => {
     const verify = await verifyRun(cwd, outcome.result.runId);
     expect(verify.ok).toBe(true);
   });
+});
+
+// Exercise the actual first-party provider route: a custom runSession would bypass the
+// output-limit contract. The response is a retained wire fixture; no network or paid compute.
+it("routes actor output limits and per-lane reasoning to concurrent provider requests", async () => {
+  const config = parseExternal();
+  config.actors[0]!.maxOutputTokens = 8192;
+  config.actors[0]!.reasoningEffort = "low";
+  config.actors[0]!.lanes![1]!.reasoningEffort = "high";
+  const { hooks } = makeExternalHooks(makeExternalRunSession({ seen: [] }));
+  delete hooks.runSession;
+  hooks.prepareDesktop = async desktop => {
+    desktop.screenshot = async () => new Uint8Array(PNG.sync.write(new PNG({ width: 4, height: 4 })));
+  };
+  hooks.readLobbyCodeFromFrame = async () => "AB2CD9";
+  const captured = JSON.parse(readFileSync(new URL("./fixtures/openai-closing-report/typed-closing-report.json", import.meta.url), "utf8"));
+  const bodies: Array<{ max_output_tokens?: number; reasoning?: { effort?: string } }> = [];
+  vi.stubGlobal("fetch", async (_url: unknown, init: { body: string }) => {
+    bodies.push(JSON.parse(init.body));
+    return { ok: true, status: 200, json: async () => captured, text: async () => JSON.stringify(captured) };
+  });
+  try {
+    const result = await runConcurrentSharedWorld({ cwd, config, dryRun: false, hooks });
+    expect(bodies).toHaveLength(3);
+    expect(bodies.map(body => body.max_output_tokens)).toEqual([8192, 8192, 8192]);
+    expect(bodies.map(body => body.reasoning?.effort).sort()).toEqual(["high", "low", "low"]);
+    expect(result.roles).toHaveLength(3);
+  } finally { vi.unstubAllGlobals(); }
 });
